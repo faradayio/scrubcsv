@@ -1,0 +1,19 @@
+[package]
+name = "scrubcsv"
+version = "0.1.0"
+authors = ["Eric Kidd <git@randomhacks.net>"]
+
+[profile.dev]
+# We always want to be fast, even in debug mode.  Comment this out for much
+# faster compiles.
+opt-level = 3
+
+[dependencies]
+csv = "0.14.7"
+docopt = "0.6.86"
+env_logger = "0.3.5"
+error-chain = "0.7.1"
+humansize = "0.1.1"
+log = "0.3.6"
+rustc-serialize = "0.3.22"
+time = "0.1.35"
