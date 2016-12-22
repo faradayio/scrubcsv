@@ -5,17 +5,18 @@ extern crate env_logger;
 #[macro_use]
 extern crate error_chain;
 extern crate humansize;
+extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate rustc_serialize;
 extern crate time;
 
 // Import from other crates.
+use humansize::{FileSize, file_size_opts};
 use std::env;
 use std::fs;
 use std::io;
-use std::io::BufRead;
-use std::io::Write;
+use std::io::prelude::*;
 use std::process;
 
 // Import from our own crates.
@@ -37,6 +38,7 @@ output.  Discard any lines with the wrong number of columns
 Options:
     --help                Show this help message
     --version             Print the version of this program
+    -v, --verbose
     -s, --separator CHAR  Character used to separate fields
                           (must be a single ASCII byte) [default: ","]
 "#;
@@ -56,47 +58,69 @@ fn run(args: &Args) -> Result<()> {
     // Remember the time we started.
     let start_time = time::precise_time_s();
 
-    // Lock stdout for high-performance use by this thread (Rust is trying
-    // to protect us against interleaved lines).  We could replace this
-    // with and output file pretty easily; just remember to use
-    // `io::BufWriter`.
-    let stdout_unlocked = io::stdout();
-    let stdout = stdout_unlocked.lock();
+    // VERY TRICKY!  The precise details of next two lines raise our
+    // maximum output speed from 100 MB/s to 3,000 MB/s!  Thanks to talchas
+    // and bluss on #rust IRC for helping figure this out.  Rust's usual
+    // `stdout` is thread-safe and line-buffered, and we need to bypass all
+    // that when writing gigabytes of line-oriented CSV files.
+    //
+    // If we forget to `lock` standard output, or if don't use a
+    // `BufWriter`, then there's some "flush on newline" code that will
+    // slow us way down.  We also have the option of being rude and doing
+    // this:
+    //
+    // ```
+    // use libc::STDOUT_FILENO;
+    // use std::os::unix::io::FromRawFd;
+    //
+    // fn raw_stdout() -> io::BufWriter<fs::File> {
+    //     io::BufWriter::new(unsafe { FromRawFd::from_raw_fd(STDOUT_FILENO) })
+    // }
+    // ```
+    //
+    // ...or opening up `/dev/stdout`, but the solution below is within
+    // measurement error in Rust 1.13.0, so no need to get cute.
+    let stdout = io::stdout();
+    let mut output = io::BufWriter::new(stdout.lock());
 
-    // Don't lock `stderr`, somebody might need it to print errors.
-    let mut stderr = io::stderr();
+    // Fetch our input from either standard input or a file.  The only
+    // tricky detail here is that we use a `Box<Read>` to represent "some
+    // object implementing `Read`, stored on the heap."  This allows us to
+    // do runtime dispatch (as if Rust Rust were object oriented).  But
+    // because we wrap the `BufReader` around the box, we only do that
+    // dispatch once per buffer flush, not on every tiny write.
+    let stdin = io::stdin();
+    let unbuffered_input: Box<Read> = if let Some(ref path) = args.arg_input {
+        Box::new(fs::File::open(path)?)
+    } else {
+        Box::new(stdin.lock())
+    };
+    let input = io::BufReader::new(unbuffered_input);
 
-    // Build a CSV writer for our good records.
-    let mut good: csv::Writer<_> = csv::Writer::from_writer(stdout);
-
-    // Buffer file input, and read line-by-line.  Buffering is _very_
-    // important for all file I/O unless you want to make a kernel call
-    // every few bytes.
-    let file = io::BufReader::new(fs::File::open("example.csv")?);
-    for line in file.lines() {
-        // Handle any I/O error from our iterator.
-        let line = line?;
-
-        // Make a CSV reader and iterate over the lines.
-        let mut rdr = csv::Reader::from_string(&line[..])
-            .has_headers(false)
-            .delimiter(b'|');
-        for record in rdr.records() { // or byte_records for non-UTF8/speed
-            // At this point, `record` is `Result`, but we don't just want
-            // to fail outright like we did for `line` above.
-            match record {
-                Ok(record) => {
-                    good.write(record.into_iter())?;
-                }
-                Err(_) => {
-                    writeln!(&mut stderr, "{}", line)?;
-                }
+    // Use the low-level CSV parser API, which doesn't allocate memory.
+    let mut rows: u64 = 0;
+    let mut rdr = csv::Reader::from_reader(input)
+        .flexible(true)
+        .delimiter(args.flag_separator.as_bytes()[0]);
+    while !rdr.done() {
+        loop {
+            match rdr.next_bytes() {
+                csv::NextField::EndOfCsv => break,
+                csv::NextField::EndOfRecord => { rows += 1; break; },
+                csv::NextField::Error(err) => { return Err(From::from(err)); }
+                csv::NextField::Data(_) => {}
             }
         }
     }
 
+    // Print out some information about our run.
     let ellapsed = time::precise_time_s() - start_time;
-    writeln!(io::stderr(), "Time: {:.2} seconds", ellapsed)?;
+    let bytes_per_second = (rdr.byte_offset() as f64 / ellapsed) as i64;
+    writeln!(io::stderr(),
+             "{} rows in {:.2} seconds, {}/sec",
+             rows,
+             ellapsed,
+             bytes_per_second.file_size(file_size_opts::BINARY)?)?;
 
     Ok(())
 }
