@@ -3,6 +3,12 @@ name = "scrubcsv"
 version = "0.1.0"
 authors = ["Eric Kidd <git@randomhacks.net>"]
 
+description = "Remove bad lines from large CSV files and normalize the rest"
+license = "MIT/Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/faradayio/scrubcsv"
+homepage = "https://github.com/faradayio/scrubcsv"
+
 [profile.dev]
 # We always want to be fast, even in debug mode.  Comment this out for much
 # faster compiles.
