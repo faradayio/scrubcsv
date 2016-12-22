@@ -39,7 +39,7 @@ Options:
     --help                Show this help message
     --version             Print the version of this program
     -v, --verbose
-    -s, --separator CHAR  Character used to separate fields
+    -d, --delimiter CHAR  Character used to separate fields in a row
                           (must be a single ASCII byte) [default: ","]
 "#;
 
@@ -47,13 +47,20 @@ Options:
 #[derive(Debug, RustcDecodable)]
 struct Args {
     arg_input: Option<String>,
-    flag_separator: String,
+    flag_delimiter: String,
 }
 
 /// This is a helper function called by our `main` function.  Unlike
 /// `main`, we return a `Result`, which means that we can use `?` and other
 /// standard error-handling machinery.
 fn run(args: &Args) -> Result<()> {
+
+    // Figure out our field separator.
+    let delimiter = if args.flag_delimiter.as_bytes().len() == 1 {
+        args.flag_delimiter.as_bytes()[0]
+    } else {
+        return Err("field delimiter must be exactly one byte".into());
+    };
 
     // Remember the time we started.
     let start_time = time::precise_time_s();
@@ -101,7 +108,7 @@ fn run(args: &Args) -> Result<()> {
     let mut rows: u64 = 0;
     let mut rdr = csv::Reader::from_reader(input)
         .flexible(true)
-        .delimiter(args.flag_separator.as_bytes()[0]);
+        .delimiter(delimiter);
     while !rdr.done() {
         loop {
             match rdr.next_bytes() {
