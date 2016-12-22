@@ -40,12 +40,12 @@ Options:
     --version             Print the version of this program
     -q, --quiet           Do not print performance information
     -d, --delimiter CHAR  Character used to separate fields in a row
-                          (must be a single ASCII byte) [default: ","]
+                          (must be a single ASCII byte) [default: ,]
 
 Exit code:
-  0 on success
-  1 on error
-  2 if more than 10% of rows were bad
+    0 on success
+    1 on error
+    2 if more than 10% of rows were bad
 "#;
 
 /// Our command-line arguments.
@@ -54,6 +54,7 @@ struct Args {
     arg_input: Option<String>,
     flag_delimiter: String,
     flag_quiet: bool,
+    flag_version: bool,
 }
 
 /// This is a helper function called by our `main` function.  Unlike
@@ -192,6 +193,12 @@ fn main() {
         .and_then(|d| d.argv(env::args()).decode())
         .unwrap_or_else(|e| e.exit());
     debug!("Arguments: {:#?}", args);
+
+    // Print our version if asked to do so.
+    if args.flag_version {
+        println!("scrubcsv {}", env!("CARGO_PKG_VERSION"));
+        process::exit(0);
+    }
 
     // Call our helper function to do the real work, and handle any errors.
     // If we can't write to standard error, these I/O calls might return
