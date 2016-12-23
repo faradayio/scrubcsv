@@ -5,7 +5,8 @@
 use csv;
 use std::io;
 
-// Declare nicer `Error` and `Result` types.
+// Declare nicer `Error` and `Result` types.  This is a macro that
+// generates a lot of boilerplate code for us.
 error_chain! {
     // Error types from other libraries that we want to just wrap
     // automatically.
@@ -14,6 +15,7 @@ error_chain! {
         Io(io::Error);
     }
 
+    // Our custom error types.
     errors {
         TooManyBadRows(bad: u64, total: u64) {
             description("a large portion of your rows were bad")
@@ -22,6 +24,7 @@ error_chain! {
     }
 }
 
+// Add custom methods to our `Error` type.
 impl Error {
     /// Should we show a backtrace for this particular error?
     pub fn should_show_backtrace(&self) -> bool {
