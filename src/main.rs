@@ -127,7 +127,7 @@ fn run(args: &Args) -> Result<()> {
     // output to be highly normalized.
     let mut wtr = csv::Writer::from_writer(output);
 
-    // Use the low-level CSV parser API, which doesn't allocate memory.
+    // Keep track of total rows and malformed rows seen.
     let mut rows: u64 = 0;
     let mut bad_rows: u64 = 0;
 
@@ -143,23 +143,24 @@ fn run(args: &Args) -> Result<()> {
         let record = record?;
 
         // Keep track of how many columns we expected.
-        let is_valid = if let Some(cols) = columns_expected {
-            if record.len() != cols {
-                bad_rows += 1;
-                false
-            } else {
+        let is_good = match columns_expected {
+            // This is the first row.
+            None => {
+                columns_expected = Some(record.len());
                 true
             }
-        } else {
-            columns_expected = Some(record.len());
-            true
+            // We know how many columns we expect, and it matches.
+            Some(expected) if record.len() == expected => true,
+            // The current row is weird.
+            Some(_) => false,
         };
 
         // If this is good row, output it.
-        if is_valid {
+        if is_good {
             wtr.write(record.into_iter())?;
+        } else {
+            bad_rows += 1;
         }
-
         rows += 1;
     }
 
