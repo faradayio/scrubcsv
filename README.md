@@ -4,7 +4,10 @@ This is a CSV cleaning tool based on BurntSushi's
 excellent [`csv`](http://burntsushi.net/rustdoc/csv/) library.  It's
 intended to be used for cleaning up and normalizing large data sets before
 feeding them to other CSV parsers, at the cost of discarding the occasional
-row.
+row.  **This program may further mangle syntactically-invalid CSV data!**
+See below for details.
+
+## Installing and using
 
 To install, first [install Rust](https://www.rustup.rs/) if you haven't
 already:
@@ -32,6 +35,39 @@ For more options, run:
 scrubcsv --help
 ```
 
+## Data cleaning notes
+
+We assume that, given hundreds of gigabytes of CSV from many sources, many
+files will contain a few unparsable lines.
+
+Lines of the following form:
+
+```csv
+Name,Phone
+"Robert "Bob" Smith",(202) 555-1212
+```
+
+...are invalid according the RFC 4180 because the quotes around `"Bob"` are
+not escaped.  The creator the file probably intended to write:
+
+```csv
+Name,Phone
+"Robert ""Bob"" Smith",(202) 555-1212
+```
+
+`scrubcsv` will currently output this as:
+
+```csv
+Name,Phone
+"Robert Bob"" Smith""",(202) 555-1212
+```
+
+If the resulting line has the wrong number of columns, it will be
+discarded.  The precise details of cleanup and discarding are subject to
+change.  The goal is to preserve data in valid CSV files, and to make a
+best effort to salvage or discard records that can't be parsed without
+being too picky about the details.
+
 ## Performance notes
 
 This is designed to be relatively fast.  For comparison purposes, on
@@ -50,4 +86,4 @@ deciding to output it.  We could, I suppose, `memmove` each field as we see
 it into an existing buffer to avoid `malloc` overhead (which is almost
 certianly the bottleneck here), but that would require more code.  Still,
 file an issue if performance is a problem.  We could probably make this a
-couple of times faster and it would be fun.
+maybe two to four times faster (and it would be fun to optimize).
