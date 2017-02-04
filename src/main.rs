@@ -153,12 +153,12 @@ fn run(args: &Args) -> Result<()> {
                 csv::NextField::Data(data) => {
                     if rows == 0 {
                         let mut column = Vec::with_capacity(cmp::max(1024, data.len()));
-                        column.extend_from_slice(data);
+                        column.extend(data);
                         columns.push(column);
                     } else if column_idx < columns.len() {
                         let column = &mut columns[column_idx];
                         column.clear();
-                        column.extend_from_slice(data);
+                        column.extend(data);
                     }
                     column_idx += 1;
                 }
