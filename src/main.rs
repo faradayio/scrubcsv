@@ -18,6 +18,7 @@ use std::fs;
 use std::io;
 use std::io::prelude::*;
 use std::process;
+use std::cmp;
 
 // Import from our own crates.
 use errors::*;
@@ -133,35 +134,36 @@ fn run(args: &Args) -> Result<()> {
 
     // Iterate over all the rows, checking to make sure they look
     // reasonable.
-    //
-    // If we use the lowest-level, zero-copy API for `csv`, we can process
-    // about 225 MB/s.  But it turns out we can't do that, because we need to
-    // have a copy of all the row's fields before deciding whether or not
-    // to write it out.
-    let mut columns_expected = None;
-    for record in rdr.byte_records() {
-        let record = record?;
-
-        // Keep track of how many columns we expected.
-        let is_good = match columns_expected {
-            // This is the first row.
-            None => {
-                columns_expected = Some(record.len());
-                true
+    let mut columns: Vec<Vec<u8>> = Vec::new();
+    let mut column_idx = 0;
+    while !rdr.done() {
+        loop {
+            match rdr.next_bytes() {
+                csv::NextField::EndOfCsv => break,
+                csv::NextField::EndOfRecord => {
+                    if column_idx == columns.len() {
+                        wtr.write(columns.iter())?
+                    } else {
+                        bad_rows += 1;
+                    }
+                    rows += 1;
+                    column_idx = 0;
+                },
+                csv::NextField::Error(err) => return Err(err.into()),
+                csv::NextField::Data(data) => {
+                    if rows == 0 {
+                        let mut column = Vec::with_capacity(cmp::max(1024, data.len()));
+                        column.extend_from_slice(data);
+                        columns.push(column);
+                    } else if column_idx < columns.len() {
+                        let column = &mut columns[column_idx];
+                        column.clear();
+                        column.extend_from_slice(data);
+                    }
+                    column_idx += 1;
+                }
             }
-            // We know how many columns we expect, and it matches.
-            Some(expected) if record.len() == expected => true,
-            // The current row is weird.
-            Some(_) => false,
-        };
-
-        // If this is good row, output it.
-        if is_good {
-            wtr.write(record.into_iter())?;
-        } else {
-            bad_rows += 1;
         }
-        rows += 1;
     }
 
     // Print out some information about our run.
