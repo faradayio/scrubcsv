@@ -60,7 +60,21 @@ struct Args {
 /// This is a helper function called by our `main` function.  Unlike
 /// `main`, we return a `Result`, which means that we can use `?` and other
 /// standard error-handling machinery.
-fn run(args: &Args) -> Result<()> {
+fn run() -> Result<()> {
+    // Set up logging.
+    env_logger::init().unwrap();
+
+    // Parse our command-line arguments using `docopt`.
+    let args: Args = docopt::Docopt::new(USAGE)
+        .and_then(|d| d.argv(env::args()).decode())
+        .unwrap_or_else(|e| e.exit());
+    debug!("Arguments: {:#?}", args);
+
+    // Print our version if asked to do so.
+    if args.flag_version {
+        println!("scrubcsv {}", env!("CARGO_PKG_VERSION"));
+        process::exit(0);
+    }
 
     // Figure out our field separator.
     let delimiter = if args.flag_delimiter.as_bytes().len() == 1 {
@@ -179,47 +193,11 @@ fn run(args: &Args) -> Result<()> {
     // If more than 10% of rows are bad, assume something has gone horribly
     // wrong.
     if bad_rows * 10 > rows {
-        return Err(ErrorKind::TooManyBadRows(bad_rows, rows).into());
+        writeln!(io::stderr(), "Too many rows ({} of {}) were bad", bad_rows, rows)?;
+        process::exit(2);
     }
 
     Ok(())
 }
 
-fn main() {
-    // Set up logging.
-    env_logger::init().unwrap();
-
-    // Parse our command-line arguments using `docopt`.
-    let args: Args = docopt::Docopt::new(USAGE)
-        .and_then(|d| d.argv(env::args()).decode())
-        .unwrap_or_else(|e| e.exit());
-    debug!("Arguments: {:#?}", args);
-
-    // Print our version if asked to do so.
-    if args.flag_version {
-        println!("scrubcsv {}", env!("CARGO_PKG_VERSION"));
-        process::exit(0);
-    }
-
-    // Call our helper function to do the real work, and handle any errors.
-    // If we can't write to standard error, these I/O calls might return
-    // errors.  We `unwrap` these and panic, because if standard error is
-    // closed, it's pretty hopeless.
-    if let Err(err) = run(&args) {
-        let mut stderr = io::stderr();
-        write!(&mut stderr, "ERROR").unwrap();
-        for e in err.iter() {
-            write!(&mut stderr, ": {}", e).unwrap();
-        }
-        writeln!(&mut stderr, "").unwrap();
-
-        // Decide whether to show a backtrace (if we have one at all);
-        if err.should_show_backtrace() {
-            if let Some(backtrace) = err.backtrace() {
-                writeln!(&mut stderr, "Backtrace:\n{:?}", backtrace).unwrap();
-            }
-        }
-
-        process::exit(err.to_exit_code());
-    }
-}
+quick_main!(run);
