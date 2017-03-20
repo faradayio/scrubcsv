@@ -26,4 +26,4 @@ rustc-serialize = "0.3.22"
 time = "0.1.35"
 
 [dev-dependencies]
-cli_test_dir = "0.1"
+cli_test_dir = "0.1.1"

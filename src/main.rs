@@ -193,6 +193,7 @@ fn run() -> Result<()> {
     // If more than 10% of rows are bad, assume something has gone horribly
     // wrong.
     if bad_rows * 10 > rows {
+        wtr.flush()?;
         writeln!(io::stderr(), "Too many rows ({} of {}) were bad", bad_rows, rows)?;
         process::exit(2);
     }
