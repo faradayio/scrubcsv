@@ -8,11 +8,13 @@ extern crate humansize;
 extern crate libc;
 #[macro_use]
 extern crate log;
+extern crate regex;
 extern crate rustc_serialize;
 extern crate time;
 
 // Import from other crates.
 use humansize::{FileSize, file_size_opts};
+use regex::bytes::Regex;
 use std::env;
 use std::fs;
 use std::io;
@@ -41,6 +43,14 @@ Options:
     -q, --quiet           Do not print performance information
     -d, --delimiter CHAR  Character used to separate fields in a row
                           (must be a single ASCII byte) [default: ,]
+    -n, --null NULLREGEX  Convert values matching NULLREGEX to an empty
+                          string.
+
+Regular expressions use Rust syntax, as described here:
+https://doc.rust-lang.org/regex/regex/index.html#syntax
+
+scrubcsv should work with any ASCII-compatible encoding, but it will not
+attempt to transcode.
 
 Exit code:
     0 on success
@@ -53,6 +63,7 @@ Exit code:
 struct Args {
     arg_input: Option<String>,
     flag_delimiter: String,
+    flag_null: Option<String>,
     flag_quiet: bool,
     flag_version: bool,
 }
@@ -125,6 +136,17 @@ fn run() -> Result<()> {
     };
     let input = io::BufReader::new(unbuffered_input);
 
+    // Build a set containing all our `--null` values.
+    let null_re = if let Some(null_re_str) = args.flag_null.as_ref() {
+        let s = format!("^{}$", null_re_str);
+        let re = Regex::new(&s).chain_err(|| -> Error {
+            "can't compile regular expression".into()
+        })?;
+        Some(re)
+    } else {
+        None
+    };
+
     // Create our CSV reader.  Note that we do not allow you to set the
     // quoting character; if you want to do that, please think through the
     // implications carefully.
@@ -171,7 +193,19 @@ fn run() -> Result<()> {
 
         // If this is good row, output it.
         if is_good {
-            wtr.write(record.into_iter())?;
+            if let Some(ref null_re) = null_re {
+                // Convert values matching `--null` regex  to empty strings.
+                wtr.write(record.into_iter().map(|val| {
+                    if null_re.is_match(&val) {
+                        csv::ByteString::new()
+                    } else {
+                        val
+                    }
+                }))?;
+            } else {
+                // Fast path.
+                wtr.write(record.into_iter())?;
+            }
         } else {
             bad_rows += 1;
         }

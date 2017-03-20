@@ -94,3 +94,13 @@ a,b,c
     assert_eq!(output.stdout_str(), "a,b,c\n");
     assert!(output.stderr_str().contains("Too many rows (1 of 2) were bad"));
 }
+
+#[test]
+fn null_normalization() {
+    let testdir = TestDir::new("scrubcsv", "null_normalization");
+    let output = testdir.cmd()
+        .args(&["--null", "(?i)null|NIL"])
+        .output_with_stdin("null,NIL,nil,,not null\n")
+        .expect_success();
+    assert_eq!(output.stdout_str(), ",,,,not null\n")
+}
