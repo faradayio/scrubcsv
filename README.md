@@ -77,8 +77,8 @@ particular laptop:
 - The raw output string-writing routines in `scrubcsv` can reach about 3.5
   GB/s.
 - The `csv` parser can reach roughly 235 MB/s in zero-copy mode.
-- With full processing, `scrubcsv` hits 67 GB/s.
-- A lot of old-school C command-line tools hit about 50 to 75 GB/s.
+- With full processing, `scrubcsv` hits 67 MB/s.
+- A lot of old-school C command-line tools hit about 50 to 75 MB/s.
 
 Unfortunately, we can't really use `csv`'s zero-copy mode because we need
 to see an entire row at once to decide whether or not it's valid before
