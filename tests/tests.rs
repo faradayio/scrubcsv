@@ -71,7 +71,7 @@ fn bad_rows() {
         good_rows.push_str("1,2,3\n");
     }
     let mut bad_rows = good_rows.clone();
-    bad_rows.push_str("1,2\n");
+    bad_rows.push_str("1,2,3,4\n");
 
     let testdir = TestDir::new("scrubcsv", "bad_rows");
     let output = testdir.cmd()
@@ -87,7 +87,7 @@ fn too_many_bad_rows() {
     let output = testdir.cmd()
         .output_with_stdin("\
 a,b,c
-1,2
+1,2,3,4
 ")
         .expect("could not run scrubcsv");
     assert!(!output.status.success());
