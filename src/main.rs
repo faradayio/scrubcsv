@@ -9,13 +9,13 @@ extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate regex;
-extern crate rustc_serialize;
+#[macro_use]
+extern crate serde_derive;
 extern crate time;
 
 // Import from other crates.
 use humansize::{FileSize, file_size_opts};
 use regex::bytes::Regex;
-use std::env;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
@@ -59,7 +59,7 @@ Exit code:
 "#;
 
 /// Our command-line arguments.
-#[derive(Debug, RustcDecodable)]
+#[derive(Debug, Deserialize)]
 struct Args {
     arg_input: Option<String>,
     flag_delimiter: String,
@@ -77,7 +77,7 @@ fn run() -> Result<()> {
 
     // Parse our command-line arguments using `docopt`.
     let args: Args = docopt::Docopt::new(USAGE)
-        .and_then(|d| d.argv(env::args()).decode())
+        .and_then(|d| d.deserialize())
         .unwrap_or_else(|e| e.exit());
     debug!("Arguments: {:#?}", args);
 
@@ -150,18 +150,21 @@ fn run() -> Result<()> {
     // Create our CSV reader.  Note that we do not allow you to set the
     // quoting character; if you want to do that, please think through the
     // implications carefully.
-    let mut rdr = csv::Reader::from_reader(input)
+    let mut rdr = csv::ReaderBuilder::new()
         // Treat headers (if any) as any other record.
         .has_headers(false)
         // Allow records with the wrong number of columns.
         .flexible(true)
         // Configure our delimiter.
-        .delimiter(delimiter);
+        .delimiter(delimiter)
+        .from_reader(input);
 
     // Create our CSV writer.  Note that we _don't_ allow variable numbers
     // of columns, non-standard delimiters, or other nonsense: We want our
     // output to be highly normalized.
-    let mut wtr = csv::Writer::from_writer(output);
+    let mut wtr = csv::WriterBuilder::new()
+        .flexible(true)
+        .from_writer(output);
 
     // Keep track of total rows and malformed rows seen.
     let mut rows: u64 = 0;
@@ -195,16 +198,16 @@ fn run() -> Result<()> {
         if is_good {
             if let Some(ref null_re) = null_re {
                 // Convert values matching `--null` regex  to empty strings.
-                wtr.write(record.into_iter().map(|val| {
+                wtr.write_record(record.into_iter().map(|val| {
                     if null_re.is_match(&val) {
-                        csv::ByteString::new()
+                        &[]
                     } else {
                         val
                     }
                 }))?;
             } else {
                 // Fast path.
-                wtr.write(record.into_iter())?;
+                wtr.write_record(record.into_iter())?;
             }
         } else {
             bad_rows += 1;
@@ -215,7 +218,7 @@ fn run() -> Result<()> {
     // Print out some information about our run.
     if !args.flag_quiet {
         let ellapsed = time::precise_time_s() - start_time;
-        let bytes_per_second = (rdr.byte_offset() as f64 / ellapsed) as i64;
+        let bytes_per_second = (rdr.position().byte() as f64 / ellapsed) as i64;
         writeln!(io::stderr(),
                  "{} rows ({} bad) in {:.2} seconds, {}/sec",
                  rows,
