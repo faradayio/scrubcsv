@@ -1,6 +1,6 @@
 [package]
 name = "scrubcsv"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Eric Kidd <git@randomhacks.net>"]
 
 description = "Remove bad lines from large CSV files and normalize the rest"
