@@ -62,6 +62,24 @@ a,b,c
 }
 
 #[test]
+fn quote_and_delimiter() {
+    let testdir = TestDir::new("scrubcsv", "basic_scrubbing");
+    testdir.create_file("in.csv", "\
+a\tb\tc
+1\t\"2\t3
+");
+    let output = testdir.cmd()
+        .args(&["-d", r"\t"])
+        .args(&["--quote", "none"])
+        .arg("in.csv")
+        .expect_success();
+    assert_eq!(output.stdout_str(), "\
+a,b,c
+1,\"\"\"2\",3
+");
+}
+
+#[test]
 fn bad_rows() {
     // Create a file with lots of good rows--enough to avoid triggering the
     // "too many bad rows" detection. This is an inefficient use of

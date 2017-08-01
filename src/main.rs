@@ -23,9 +23,11 @@ use std::process;
 
 // Import from our own crates.
 use errors::*;
+use util::parse_char_specifier;
 
 // Modules defined in separate files.
 mod errors;
+mod util;
 
 /// Provide a CLI help message, which doctopt will also use to parse our
 /// command-line arguments.
@@ -38,11 +40,13 @@ Read a CSV file, normalize the "good" lines, and print them to standard
 output.  Discard any lines with the wrong number of columns.
 
 Options:
-    --help                Show this help message
-    --version             Print the version of this program
-    -q, --quiet           Do not print performance information
-    -d, --delimiter CHAR  Character used to separate fields in a row
-                          (must be a single ASCII byte) [default: ,]
+    --help                Show this help message.
+    --version             Print the version of this program.
+    -q, --quiet           Do not print performance information.
+    -d, --delimiter CHAR  Character used to separate fields in a row.
+                          (must be a single ASCII byte). [default: ,]
+    --quote CHAR          Character used to quote entries. May be set to
+                          "none" to ignore all quoting. [default: "]
     -n, --null NULLREGEX  Convert values matching NULLREGEX to an empty
                           string.
 
@@ -65,6 +69,7 @@ struct Args {
     flag_delimiter: String,
     flag_null: Option<String>,
     flag_quiet: bool,
+    flag_quote: String,
     flag_version: bool,
 }
 
@@ -87,12 +92,12 @@ fn run() -> Result<()> {
         process::exit(0);
     }
 
-    // Figure out our field separator.
-    let delimiter = if args.flag_delimiter.as_bytes().len() == 1 {
-        args.flag_delimiter.as_bytes()[0]
-    } else {
-        return Err("field delimiter must be exactly one byte".into());
+    // Figure out our field delimiter and quote character.
+    let delimiter = match parse_char_specifier(&args.flag_delimiter)? {
+        Some(d) => d,
+        _ => return Err("field delimiter is required".into())
     };
+    let quote = parse_char_specifier(&args.flag_quote)?;
 
     // Remember the time we started.
     let start_time = time::precise_time_s();
@@ -147,17 +152,21 @@ fn run() -> Result<()> {
         None
     };
 
-    // Create our CSV reader.  Note that we do not allow you to set the
-    // quoting character; if you want to do that, please think through the
-    // implications carefully.
-    let mut rdr = csv::ReaderBuilder::new()
-        // Treat headers (if any) as any other record.
-        .has_headers(false)
-        // Allow records with the wrong number of columns.
-        .flexible(true)
-        // Configure our delimiter.
-        .delimiter(delimiter)
-        .from_reader(input);
+    // Create our CSV reader.
+    let mut rdr_builder = csv::ReaderBuilder::new();
+    // Treat headers (if any) as any other record.
+    rdr_builder.has_headers(false);
+    // Allow records with the wrong number of columns.
+    rdr_builder.flexible(true);
+    // Configure our delimiter.
+    rdr_builder.delimiter(delimiter);
+    // Configure our quote character.
+    if let Some(quote) = quote {
+        rdr_builder.quote(quote);
+    } else {
+        rdr_builder.quoting(false);
+    }
+    let mut rdr = rdr_builder.from_reader(input);
 
     // Create our CSV writer.  Note that we _don't_ allow variable numbers
     // of columns, non-standard delimiters, or other nonsense: We want our

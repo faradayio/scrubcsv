@@ -14,4 +14,11 @@ error_chain! {
         Csv(csv::Error);
         Io(io::Error);
     }
+
+    errors {
+        CannotParseCharacter(specifier: String) {
+            description("cannot parse character specifier")
+            display("cannot parse character specifier: '{}'", specifier)
+        }
+    }
 }
