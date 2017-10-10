@@ -198,7 +198,7 @@ fn run() -> Result<()> {
                 true
             }
             // We know how many columns we expect, and it matches.
-            Some(expected) if record.len() == expected => true,
+            Some(expected) if record.len() <= expected => true,
             // The current row is weird.
             Some(_) => false,
         };
