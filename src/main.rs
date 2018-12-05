@@ -7,6 +7,8 @@ extern crate error_chain;
 extern crate humansize;
 extern crate libc;
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 extern crate regex;
 #[macro_use]
@@ -14,12 +16,14 @@ extern crate serde_derive;
 extern crate time;
 
 // Import from other crates.
-use humansize::{FileSize, file_size_opts};
+use humansize::{file_size_opts, FileSize};
 use regex::bytes::Regex;
-use std::fs;
-use std::io;
-use std::io::prelude::*;
-use std::process;
+use std::{
+    borrow::Cow,
+    fs,
+    io::{self, prelude::*},
+    process,
+};
 
 // Import from our own crates.
 use errors::*;
@@ -49,6 +53,10 @@ Options:
                           "none" to ignore all quoting. [default: "]
     -n, --null NULLREGEX  Convert values matching NULLREGEX to an empty
                           string.
+    --replace-newlines    Replace LF and CRLF sequences in values with
+                          spaces. This should improve compatibility with
+                          systems like BigQuery that don't expect newlines
+                          inside escaped strings.
 
 Regular expressions use Rust syntax, as described here:
 https://doc.rust-lang.org/regex/regex/index.html#syntax
@@ -68,9 +76,16 @@ struct Args {
     arg_input: Option<String>,
     flag_delimiter: String,
     flag_null: Option<String>,
+    flag_replace_newlines: bool,
     flag_quiet: bool,
     flag_quote: String,
     flag_version: bool,
+}
+
+lazy_static! {
+    /// Either a CRLF newline, or a LF newline.
+    static ref CRLF_OR_LF_RE: Regex = Regex::new(r#"\r?\n"#)
+        .expect("regex in source code is unparseable");
 }
 
 /// This is a helper function called by our `main` function.  Unlike
@@ -78,7 +93,7 @@ struct Args {
 /// standard error-handling machinery.
 fn run() -> Result<()> {
     // Set up logging.
-    env_logger::init().unwrap();
+    env_logger::init();
 
     // Parse our command-line arguments using `docopt`.
     let args: Args = docopt::Docopt::new(USAGE)
@@ -95,7 +110,7 @@ fn run() -> Result<()> {
     // Figure out our field delimiter and quote character.
     let delimiter = match parse_char_specifier(&args.flag_delimiter)? {
         Some(d) => d,
-        _ => return Err("field delimiter is required".into())
+        _ => return Err("field delimiter is required".into()),
     };
     let quote = parse_char_specifier(&args.flag_quote)?;
 
@@ -144,9 +159,8 @@ fn run() -> Result<()> {
     // Build a set containing all our `--null` values.
     let null_re = if let Some(null_re_str) = args.flag_null.as_ref() {
         let s = format!("^{}$", null_re_str);
-        let re = Regex::new(&s).chain_err(|| -> Error {
-            "can't compile regular expression".into()
-        })?;
+        let re = Regex::new(&s)
+            .chain_err(|| -> Error { "can't compile regular expression".into() })?;
         Some(re)
     } else {
         None
@@ -171,13 +185,16 @@ fn run() -> Result<()> {
     // Create our CSV writer.  Note that we _don't_ allow variable numbers
     // of columns, non-standard delimiters, or other nonsense: We want our
     // output to be highly normalized.
-    let mut wtr = csv::WriterBuilder::new()
-        .flexible(true)
-        .from_writer(output);
+    let mut wtr = csv::WriterBuilder::new().flexible(true).from_writer(output);
 
     // Keep track of total rows and malformed rows seen.
     let mut rows: u64 = 0;
     let mut bad_rows: u64 = 0;
+
+    // Can we use the fast path and copy the data through unchanged? Or do we
+    // need to clean up emebedded newlines in our data? (These break BigQuery,
+    // for example.)
+    let use_fast_path = null_re.is_none() && !args.flag_replace_newlines;
 
     // Iterate over all the rows, checking to make sure they look
     // reasonable.
@@ -203,20 +220,30 @@ fn run() -> Result<()> {
             Some(_) => false,
         };
 
-        // If this is good row, output it.
+        // If this is a good row, output it.
         if is_good {
-            if let Some(ref null_re) = null_re {
-                // Convert values matching `--null` regex  to empty strings.
-                wtr.write_record(record.into_iter().map(|val| {
-                    if null_re.is_match(&val) {
-                        &[]
+            if use_fast_path {
+                // We don't need to do anything fancy, so just pass it through.
+                // I'm not sure how much this actually buys us in current Rust
+                // versions, but it seemed like a good idea at the time.
+                wtr.write_record(record.into_iter())?;
+            } else {
+                // We need to apply one or more cleanups, so run the slow path.
+                wtr.write_record(record.into_iter().map(|mut val| {
+                    // Convert values matching `--null` regex to empty strings.
+                    if let Some(ref null_re) = null_re {
+                        if null_re.is_match(&val) {
+                            val = &[]
+                        }
+                    }
+
+                    // Fix newlines.
+                    if args.flag_replace_newlines && val.contains(&b'\n') {
+                        CRLF_OR_LF_RE.replace_all(val, &b" "[..])
                     } else {
-                        val
+                        Cow::Borrowed(val)
                     }
                 }))?;
-            } else {
-                // Fast path.
-                wtr.write_record(record.into_iter())?;
             }
         } else {
             bad_rows += 1;
@@ -228,19 +255,26 @@ fn run() -> Result<()> {
     if !args.flag_quiet {
         let ellapsed = time::precise_time_s() - start_time;
         let bytes_per_second = (rdr.position().byte() as f64 / ellapsed) as i64;
-        writeln!(io::stderr(),
-                 "{} rows ({} bad) in {:.2} seconds, {}/sec",
-                 rows,
-                 bad_rows,
-                 ellapsed,
-                 bytes_per_second.file_size(file_size_opts::BINARY)?)?;
+        writeln!(
+            io::stderr(),
+            "{} rows ({} bad) in {:.2} seconds, {}/sec",
+            rows,
+            bad_rows,
+            ellapsed,
+            bytes_per_second.file_size(file_size_opts::BINARY)?
+        )?;
     }
 
     // If more than 10% of rows are bad, assume something has gone horribly
     // wrong.
     if bad_rows * 10 > rows {
         wtr.flush()?;
-        writeln!(io::stderr(), "Too many rows ({} of {}) were bad", bad_rows, rows)?;
+        writeln!(
+            io::stderr(),
+            "Too many rows ({} of {}) were bad",
+            bad_rows,
+            rows
+        )?;
         process::exit(2);
     }
 
