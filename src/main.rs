@@ -7,6 +7,8 @@ extern crate error_chain;
 extern crate humansize;
 extern crate libc;
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 extern crate regex;
 #[macro_use]
@@ -16,10 +18,12 @@ extern crate time;
 // Import from other crates.
 use humansize::{file_size_opts, FileSize};
 use regex::bytes::Regex;
-use std::fs;
-use std::io;
-use std::io::prelude::*;
-use std::process;
+use std::{
+    borrow::Cow,
+    fs,
+    io::{self, prelude::*},
+    process,
+};
 
 // Import from our own crates.
 use errors::*;
@@ -49,6 +53,10 @@ Options:
                           "none" to ignore all quoting. [default: "]
     -n, --null NULLREGEX  Convert values matching NULLREGEX to an empty
                           string.
+    --replace-newlines    Replace LF and CRLF sequences in values with
+                          spaces. This should improve compatibility with
+                          systems like BigQuery that don't expect newlines
+                          inside escaped strings.
 
 Regular expressions use Rust syntax, as described here:
 https://doc.rust-lang.org/regex/regex/index.html#syntax
@@ -68,9 +76,16 @@ struct Args {
     arg_input: Option<String>,
     flag_delimiter: String,
     flag_null: Option<String>,
+    flag_replace_newlines: bool,
     flag_quiet: bool,
     flag_quote: String,
     flag_version: bool,
+}
+
+lazy_static! {
+    /// Either a CRLF newline, or a LF newline.
+    static ref CRLF_OR_LF_RE: Regex = Regex::new(r#"\r?\n"#)
+        .expect("regex in source code is unparseable");
 }
 
 /// This is a helper function called by our `main` function.  Unlike
@@ -176,6 +191,11 @@ fn run() -> Result<()> {
     let mut rows: u64 = 0;
     let mut bad_rows: u64 = 0;
 
+    // Can we use the fast path and copy the data through unchanged? Or do we
+    // need to clean up emebedded newlines in our data? (These break BigQuery,
+    // for example.)
+    let use_fast_path = null_re.is_none() && !args.flag_replace_newlines;
+
     // Iterate over all the rows, checking to make sure they look
     // reasonable.
     //
@@ -200,20 +220,30 @@ fn run() -> Result<()> {
             Some(_) => false,
         };
 
-        // If this is good row, output it.
+        // If this is a good row, output it.
         if is_good {
-            if let Some(ref null_re) = null_re {
-                // Convert values matching `--null` regex  to empty strings.
-                wtr.write_record(record.into_iter().map(|val| {
-                    if null_re.is_match(&val) {
-                        &[]
+            if use_fast_path {
+                // We don't need to do anything fancy, so just pass it through.
+                // I'm not sure how much this actually buys us in current Rust
+                // versions, but it seemed like a good idea at the time.
+                wtr.write_record(record.into_iter())?;
+            } else {
+                // We need to apply one or more cleanups, so run the slow path.
+                wtr.write_record(record.into_iter().map(|mut val| {
+                    // Convert values matching `--null` regex to empty strings.
+                    if let Some(ref null_re) = null_re {
+                        if null_re.is_match(&val) {
+                            val = &[]
+                        }
+                    }
+
+                    // Fix newlines.
+                    if args.flag_replace_newlines && val.contains(&b'\n') {
+                        CRLF_OR_LF_RE.replace_all(val, &b" "[..])
                     } else {
-                        val
+                        Cow::Borrowed(val)
                     }
                 }))?;
-            } else {
-                // Fast path.
-                wtr.write_record(record.into_iter())?;
             }
         } else {
             bad_rows += 1;
