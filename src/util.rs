@@ -13,9 +13,7 @@ pub fn parse_char_specifier(specifier: &str) -> Result<Option<u8>> {
             // too.
             r"\t" => Ok(Some('\t' as u8)),
             "none" => Ok(None),
-            _ => {
-                Err(ErrorKind::CannotParseCharacter(specifier.to_owned()).into())
-            }
+            _ => Err(ErrorKind::CannotParseCharacter(specifier.to_owned()).into()),
         }
     }
 }

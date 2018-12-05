@@ -14,7 +14,7 @@ extern crate serde_derive;
 extern crate time;
 
 // Import from other crates.
-use humansize::{FileSize, file_size_opts};
+use humansize::{file_size_opts, FileSize};
 use regex::bytes::Regex;
 use std::fs;
 use std::io;
@@ -95,7 +95,7 @@ fn run() -> Result<()> {
     // Figure out our field delimiter and quote character.
     let delimiter = match parse_char_specifier(&args.flag_delimiter)? {
         Some(d) => d,
-        _ => return Err("field delimiter is required".into())
+        _ => return Err("field delimiter is required".into()),
     };
     let quote = parse_char_specifier(&args.flag_quote)?;
 
@@ -144,9 +144,8 @@ fn run() -> Result<()> {
     // Build a set containing all our `--null` values.
     let null_re = if let Some(null_re_str) = args.flag_null.as_ref() {
         let s = format!("^{}$", null_re_str);
-        let re = Regex::new(&s).chain_err(|| -> Error {
-            "can't compile regular expression".into()
-        })?;
+        let re = Regex::new(&s)
+            .chain_err(|| -> Error { "can't compile regular expression".into() })?;
         Some(re)
     } else {
         None
@@ -171,9 +170,7 @@ fn run() -> Result<()> {
     // Create our CSV writer.  Note that we _don't_ allow variable numbers
     // of columns, non-standard delimiters, or other nonsense: We want our
     // output to be highly normalized.
-    let mut wtr = csv::WriterBuilder::new()
-        .flexible(true)
-        .from_writer(output);
+    let mut wtr = csv::WriterBuilder::new().flexible(true).from_writer(output);
 
     // Keep track of total rows and malformed rows seen.
     let mut rows: u64 = 0;
@@ -228,19 +225,26 @@ fn run() -> Result<()> {
     if !args.flag_quiet {
         let ellapsed = time::precise_time_s() - start_time;
         let bytes_per_second = (rdr.position().byte() as f64 / ellapsed) as i64;
-        writeln!(io::stderr(),
-                 "{} rows ({} bad) in {:.2} seconds, {}/sec",
-                 rows,
-                 bad_rows,
-                 ellapsed,
-                 bytes_per_second.file_size(file_size_opts::BINARY)?)?;
+        writeln!(
+            io::stderr(),
+            "{} rows ({} bad) in {:.2} seconds, {}/sec",
+            rows,
+            bad_rows,
+            ellapsed,
+            bytes_per_second.file_size(file_size_opts::BINARY)?
+        )?;
     }
 
     // If more than 10% of rows are bad, assume something has gone horribly
     // wrong.
     if bad_rows * 10 > rows {
         wtr.flush()?;
-        writeln!(io::stderr(), "Too many rows ({} of {}) were bad", bad_rows, rows)?;
+        writeln!(
+            io::stderr(),
+            "Too many rows ({} of {}) were bad",
+            bad_rows,
+            rows
+        )?;
         process::exit(2);
     }
 
