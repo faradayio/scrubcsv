@@ -78,7 +78,7 @@ struct Args {
 /// standard error-handling machinery.
 fn run() -> Result<()> {
     // Set up logging.
-    env_logger::init().unwrap();
+    env_logger::init();
 
     // Parse our command-line arguments using `docopt`.
     let args: Args = docopt::Docopt::new(USAGE)
