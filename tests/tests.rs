@@ -146,7 +146,7 @@ fn replace_newlines() {
     let output = testdir
         .cmd()
         .arg("--replace-newlines")
-        .output_with_stdin("\"line\r\nbreak 1\",\"line\nbreak\n2\"\n")
+        .output_with_stdin("\"line\r\nbreak\r1\",\"line\nbreak\n2\"\n")
         .expect_success();
     assert_eq!(output.stdout_str(), "line break 1,line break 2\n");
 }

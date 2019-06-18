@@ -83,8 +83,9 @@ struct Args {
 }
 
 lazy_static! {
-    /// Either a CRLF newline, or a LF newline.
-    static ref CRLF_OR_LF_RE: Regex = Regex::new(r#"\r?\n"#)
+    /// Either a CRLF newline, a LF newline, or a CR newline. Any of these
+    /// will break certain CSV parsers, including BigQuery's CSV importer.
+    static ref NEWLINE_RE: Regex = Regex::new(r#"\n|\r\n?"#)
         .expect("regex in source code is unparseable");
 }
 
@@ -238,8 +239,8 @@ fn run() -> Result<()> {
                     }
 
                     // Fix newlines.
-                    if args.flag_replace_newlines && val.contains(&b'\n') {
-                        CRLF_OR_LF_RE.replace_all(val, &b" "[..])
+                    if args.flag_replace_newlines && (val.contains(&b'\n') || val.contains(&b'\r')) {
+                        NEWLINE_RE.replace_all(val, &b" "[..])
                     } else {
                         Cow::Borrowed(val)
                     }
