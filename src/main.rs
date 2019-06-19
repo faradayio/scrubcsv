@@ -35,7 +35,7 @@ mod util;
 
 /// Provide a CLI help message, which doctopt will also use to parse our
 /// command-line arguments.
-const USAGE: &'static str = r#"
+const USAGE: &str = r#"
 Usage: scrubcsv [options] [<input>]
        scrubcsv --help
        scrubcsv --version
