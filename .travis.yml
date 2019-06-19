@@ -1,0 +1,43 @@
+language: rust
+sudo: required
+os:
+- linux
+- osx
+rust:
+- stable
+services:
+- docker
+before_script:
+- rustup component add rustfmt
+- rustup component add clippy
+script:
+  # Require `cargo fmt` to have been run.
+  - cargo fmt -- --check
+  # Build the code.
+  - cargo build --verbose
+  # Run the tests.
+  - cargo test --verbose
+  # Require clippy to pass without warnings. This also fails for regular Rust
+  # warnings.
+  - cargo clippy -- -D warnings
+before_deploy:
+  #- cargo doc
+  - ./build-release scrubcsv "${TRAVIS_TAG}-${TRAVIS_OS_NAME}"
+deploy:
+  - provider: releases
+    api_key:
+      secure: piGsw+ROzNS3r2jsoowrS5sR2lUxZgyYT1Pf17J6XErP7B6JQRvgxLr0tISSJtxuDJ0G6dR8mvwuNmRv93PjZJhWLdgNvA5dUuatsboNuksxmjYLukljLzxLFPXL+FQyrcbdtRV6AbjtUfV61tiKDA93RgA4azkuCdKqQkJnsJ4i3IVvGGDXmNZE7UnUH3Kl15pkvEum+mxQRLzmpIXLN46suQ7M7Lra0Wd4CBZXVMkrI48NzHs1HUo9OPLH019yymL286DYzD30xTZ3kiWwb9a+uYPzrtS0WTYf8O+ECkAWwx1DkXT+jIrPFNZTdjHASgmHp5zSIm/Clm0Oq+F0WR3YgHnD1OOx4xsBBrsC5UNW74Mz6bcAsoBrnuVcCPk6+psRgs0eKaSO348m1o1HAV7YJ4uQc9HA0zGE/kW0FIxGf3oIUSl+3YnsHbJg6FkhWar9x5KTepU55HwXAb/F7P9Kva5WIyGfT/1X4a2tIpZ/0nJ2A4ceDrmxV1cPi7az9KntXceL55Jm9x2884tYzhxs/kBdpgV8PDFVe4vg7ns8HOf5ZFIGspmaiaWSr/io5TxCJagSVbENCHw5wExlX1ToX0QzXP4/n5WL9wdCMJJgr6omfUkC3zO3V4+/F4BxUY6e55p722vwO66DSm80fM1jLEq1jtVmGcolc3kCCdU=
+    file_glob: true
+    file: "scrubcsv-${TRAVIS_TAG}-${TRAVIS_OS_NAME}.*"
+    skip_cleanup: true
+    on:
+      tags: true
+  #- provider: pages
+  #  skip-cleanup: true
+  #  local-dir: target/doc
+  #  keep-history: true
+  #  github-token: $GITHUB_TOKEN
+  #  on:
+  #    tags: true
+  #    condition: $TRAVIS_OS_NAME = linux
+
