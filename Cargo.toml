@@ -2,6 +2,7 @@
 name = "scrubcsv"
 version = "0.1.4"
 authors = ["Eric Kidd <git@randomhacks.net>"]
+edition = "2018"
 
 description = "Remove bad lines from large CSV files and normalize the rest"
 license = "MIT/Apache-2.0"

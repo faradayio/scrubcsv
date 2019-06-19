@@ -1,6 +1,6 @@
 //! Miscellaneous utilities.
 
-use errors::*;
+use crate::errors::*;
 
 /// Parse a character specifier and return a single-byte character.
 pub fn parse_char_specifier(specifier: &str) -> Result<Option<u8>> {

@@ -25,13 +25,13 @@ use std::{
     process,
 };
 
-// Import from our own crates.
-use errors::*;
-use util::parse_char_specifier;
-
 // Modules defined in separate files.
 mod errors;
 mod util;
+
+// Import from our own crates.
+use crate::errors::*;
+use crate::util::parse_char_specifier;
 
 /// Provide a CLI help message, which doctopt will also use to parse our
 /// command-line arguments.
