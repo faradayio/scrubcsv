@@ -11,7 +11,7 @@ pub fn parse_char_specifier(specifier: &str) -> Result<Option<u8>> {
             // For convenience so users to can type `"\t"` in most shells
             // instead of trying to type a tab literal. `xsv` supports this,
             // too.
-            r"\t" => Ok(Some('\t' as u8)),
+            r"\t" => Ok(Some(b'\t')),
             "none" => Ok(None),
             _ => Err(ErrorKind::CannotParseCharacter(specifier.to_owned()).into()),
         }
@@ -20,8 +20,8 @@ pub fn parse_char_specifier(specifier: &str) -> Result<Option<u8>> {
 
 #[test]
 fn parses_char_specifiers() {
-    assert_eq!(parse_char_specifier(",").unwrap(), Some(',' as u8));
-    assert_eq!(parse_char_specifier("\t").unwrap(), Some('\t' as u8));
-    assert_eq!(parse_char_specifier(r"\t").unwrap(), Some('\t' as u8));
+    assert_eq!(parse_char_specifier(",").unwrap(), Some(b','));
+    assert_eq!(parse_char_specifier("\t").unwrap(), Some(b'\t'));
+    assert_eq!(parse_char_specifier(r"\t").unwrap(), Some(b'\t'));
     assert_eq!(parse_char_specifier(r"none").unwrap(), None);
 }
