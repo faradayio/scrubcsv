@@ -225,7 +225,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "scrubcsv"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cli_test_dir 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "csv 1.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
