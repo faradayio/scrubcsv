@@ -239,7 +239,9 @@ fn run() -> Result<()> {
                     }
 
                     // Fix newlines.
-                    if args.flag_replace_newlines && (val.contains(&b'\n') || val.contains(&b'\r')) {
+                    if args.flag_replace_newlines
+                        && (val.contains(&b'\n') || val.contains(&b'\r'))
+                    {
                         NEWLINE_RE.replace_all(val, &b" "[..])
                     } else {
                         Cow::Borrowed(val)

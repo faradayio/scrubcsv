@@ -4,6 +4,3 @@ max_width = 87
 
 # Switch to short-form field init syntax when possible, for consistency.
 use_field_init_shorthand = true
-
-# We have deprecated `try!` in favor of `?` in Faraday code.
-use_try_shorthand = true
