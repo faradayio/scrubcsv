@@ -18,7 +18,7 @@ opt-level = 3
 [dependencies]
 csv = "1"
 docopt = "1"
-env_logger = "0.6"
+env_logger = "0.7"
 error-chain = "0.12"
 humansize = "1.0.1"
 lazy_static = "1.2.0"
