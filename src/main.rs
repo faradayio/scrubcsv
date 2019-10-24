@@ -1,22 +1,11 @@
 // Declare a list of external crates.
-extern crate csv;
-extern crate docopt;
-extern crate env_logger;
 #[macro_use]
 extern crate error_chain;
-extern crate humansize;
-extern crate libc;
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-extern crate regex;
-#[macro_use]
-extern crate serde_derive;
-extern crate time;
 
 // Import from other crates.
 use humansize::{file_size_opts, FileSize};
+use lazy_static::lazy_static;
+use log::debug;
 use regex::bytes::Regex;
 use std::{
     borrow::Cow,
@@ -24,6 +13,7 @@ use std::{
     io::{self, prelude::*},
     process,
 };
+use structopt::StructOpt;
 
 // Modules defined in separate files.
 mod errors;
@@ -33,30 +23,13 @@ mod util;
 use crate::errors::*;
 use crate::util::parse_char_specifier;
 
-/// Provide a CLI help message, which doctopt will also use to parse our
-/// command-line arguments.
-const USAGE: &str = r#"
-Usage: scrubcsv [options] [<input>]
-       scrubcsv --help
-       scrubcsv --version
-
-Read a CSV file, normalize the "good" lines, and print them to standard
+/// Our command-line arguments.
+#[derive(Debug, StructOpt)]
+#[structopt(
+    name = "scrubcsv",
+    about = "Clean and normalize a CSV file.",
+    after_help = "Read a CSV file, normalize the \"good\" lines, and print them to standard
 output.  Discard any lines with the wrong number of columns.
-
-Options:
-    --help                Show this help message.
-    --version             Print the version of this program.
-    -q, --quiet           Do not print performance information.
-    -d, --delimiter CHAR  Character used to separate fields in a row.
-                          (must be a single ASCII byte). [default: ,]
-    --quote CHAR          Character used to quote entries. May be set to
-                          "none" to ignore all quoting. [default: "]
-    -n, --null NULLREGEX  Convert values matching NULLREGEX to an empty
-                          string.
-    --replace-newlines    Replace LF and CRLF sequences in values with
-                          spaces. This should improve compatibility with
-                          systems like BigQuery that don't expect newlines
-                          inside escaped strings.
 
 Regular expressions use Rust syntax, as described here:
 https://doc.rust-lang.org/regex/regex/index.html#syntax
@@ -67,19 +40,45 @@ attempt to transcode.
 Exit code:
     0 on success
     1 on error
-    2 if more than 10% of rows were bad
-"#;
+    2 if more than 10% of rows were bad"
+)]
+struct Opt {
+    /// Input file (uses stdin if omitted).
+    input: Option<String>,
 
-/// Our command-line arguments.
-#[derive(Debug, Deserialize)]
-struct Args {
-    arg_input: Option<String>,
-    flag_delimiter: String,
-    flag_null: Option<String>,
-    flag_replace_newlines: bool,
-    flag_quiet: bool,
-    flag_quote: String,
-    flag_version: bool,
+    /// Character used to separate fields in a row (must be a single ASCII
+    /// byte, or "tab").
+    #[structopt(
+        value_name = "CHAR",
+        short = "d",
+        long = "delimiter",
+        default_value = ","
+    )]
+    delimiter: String,
+
+    /// Convert values matching NULLREGEX to an empty string.
+    #[structopt(value_name = "NULLREGEX", short = "n", long = "null")]
+    null: Option<String>,
+
+    // Replace LF and CRLF sequences in values with spaces. This should improve
+    // compatibility with systems like BigQuery that don't expect newlines
+    // inside escaped strings.
+    #[structopt(long = "replace-newlines")]
+    replace_newlines: bool,
+
+    // Drop any rows where the specified column is empty or NULL. Can be passed
+    // more than once.
+    #[structopt(value_name = "COL", long = "drop-row-if-null")]
+    drop_row_if_null: Vec<String>,
+
+    // Do not print performance information.
+    #[structopt(short = "q", long = "quiet")]
+    quiet: bool,
+
+    // Character used to quote entries. May be set to "none" to ignore all
+    // quoting.
+    #[structopt(value_name = "CHAR", long = "quote", default_value = "\"")]
+    quote: String,
 }
 
 lazy_static! {
@@ -97,23 +96,15 @@ fn run() -> Result<()> {
     env_logger::init();
 
     // Parse our command-line arguments using `docopt`.
-    let args: Args = docopt::Docopt::new(USAGE)
-        .and_then(|d| d.deserialize())
-        .unwrap_or_else(|e| e.exit());
-    debug!("Arguments: {:#?}", args);
-
-    // Print our version if asked to do so.
-    if args.flag_version {
-        println!("scrubcsv {}", env!("CARGO_PKG_VERSION"));
-        process::exit(0);
-    }
+    let opt = Opt::from_args();
+    debug!("Options: {:#?}", opt);
 
     // Figure out our field delimiter and quote character.
-    let delimiter = match parse_char_specifier(&args.flag_delimiter)? {
+    let delimiter = match parse_char_specifier(&opt.delimiter)? {
         Some(d) => d,
         _ => return Err("field delimiter is required".into()),
     };
-    let quote = parse_char_specifier(&args.flag_quote)?;
+    let quote = parse_char_specifier(&opt.quote)?;
 
     // Remember the time we started.
     let start_time = time::precise_time_s();
@@ -150,7 +141,7 @@ fn run() -> Result<()> {
     // because we wrap the `BufReader` around the box, we only do that
     // dispatch once per buffer flush, not on every tiny write.
     let stdin = io::stdin();
-    let unbuffered_input: Box<dyn Read> = if let Some(ref path) = args.arg_input {
+    let unbuffered_input: Box<dyn Read> = if let Some(ref path) = opt.input {
         Box::new(fs::File::open(path)?)
     } else {
         Box::new(stdin.lock())
@@ -158,7 +149,7 @@ fn run() -> Result<()> {
     let input = io::BufReader::new(unbuffered_input);
 
     // Build a set containing all our `--null` values.
-    let null_re = if let Some(null_re_str) = args.flag_null.as_ref() {
+    let null_re = if let Some(null_re_str) = opt.null.as_ref() {
         let s = format!("^{}$", null_re_str);
         let re = Regex::new(&s)
             .chain_err(|| -> Error { "can't compile regular expression".into() })?;
@@ -169,8 +160,8 @@ fn run() -> Result<()> {
 
     // Create our CSV reader.
     let mut rdr_builder = csv::ReaderBuilder::new();
-    // Treat headers (if any) as any other record.
-    rdr_builder.has_headers(false);
+    // We need headers so that we can honor --drop-row-if-null.
+    rdr_builder.has_headers(true);
     // Allow records with the wrong number of columns.
     rdr_builder.flexible(true);
     // Configure our delimiter.
@@ -182,20 +173,34 @@ fn run() -> Result<()> {
         rdr_builder.quoting(false);
     }
     let mut rdr = rdr_builder.from_reader(input);
+    let hdr = rdr.byte_headers()?.to_owned();
+
+    // Just in --drop-row-if-null was passed, precompute which columns are
+    // required.
+    let required_cols = hdr
+        .iter()
+        .map(|name| -> bool {
+            opt.drop_row_if_null
+                .iter()
+                .any(|requried_name| requried_name.as_bytes() == name)
+        })
+        .collect::<Vec<bool>>();
 
     // Create our CSV writer.  Note that we _don't_ allow variable numbers
     // of columns, non-standard delimiters, or other nonsense: We want our
     // output to be highly normalized.
     let mut wtr = csv::WriterBuilder::new().flexible(true).from_writer(output);
+    wtr.write_byte_record(&hdr)?;
 
     // Keep track of total rows and malformed rows seen.
-    let mut rows: u64 = 0;
+    let mut rows: u64 = 1;
     let mut bad_rows: u64 = 0;
 
     // Can we use the fast path and copy the data through unchanged? Or do we
     // need to clean up emebedded newlines in our data? (These break BigQuery,
     // for example.)
-    let use_fast_path = null_re.is_none() && !args.flag_replace_newlines;
+    let use_fast_path =
+        null_re.is_none() && !opt.replace_newlines && opt.drop_row_if_null.is_empty();
 
     // Iterate over all the rows, checking to make sure they look
     // reasonable.
@@ -204,58 +209,64 @@ fn run() -> Result<()> {
     // about 225 MB/s.  But it turns out we can't do that, because we need to
     // have a copy of all the row's fields before deciding whether or not
     // to write it out.
-    let mut columns_expected = None;
-    for record in rdr.byte_records() {
+    'next_row: for record in rdr.byte_records() {
         let record = record?;
 
-        // Keep track of how many columns we expected.
-        let is_good = match columns_expected {
-            // This is the first row.
-            None => {
-                columns_expected = Some(record.len());
-                true
-            }
-            // We know how many columns we expect, and it matches.
-            Some(expected) if record.len() == expected => true,
-            // The current row is weird.
-            Some(_) => false,
-        };
-
-        // If this is a good row, output it.
-        if is_good {
-            if use_fast_path {
-                // We don't need to do anything fancy, so just pass it through.
-                // I'm not sure how much this actually buys us in current Rust
-                // versions, but it seemed like a good idea at the time.
-                wtr.write_record(record.into_iter())?;
-            } else {
-                // We need to apply one or more cleanups, so run the slow path.
-                wtr.write_record(record.into_iter().map(|mut val| {
-                    // Convert values matching `--null` regex to empty strings.
-                    if let Some(ref null_re) = null_re {
-                        if null_re.is_match(&val) {
-                            val = &[]
-                        }
-                    }
-
-                    // Fix newlines.
-                    if args.flag_replace_newlines
-                        && (val.contains(&b'\n') || val.contains(&b'\r'))
-                    {
-                        NEWLINE_RE.replace_all(val, &b" "[..])
-                    } else {
-                        Cow::Borrowed(val)
-                    }
-                }))?;
-            }
-        } else {
-            bad_rows += 1;
-        }
+        // Keep track of how many rows we've seen.
         rows += 1;
+
+        // Check if we have the right number of columns in this row.
+        if record.len() != hdr.len() {
+            bad_rows += 1;
+            continue 'next_row;
+        }
+
+        // Decide how to handle this row.
+        if use_fast_path {
+            // We don't need to do anything fancy, so just pass it through.
+            // I'm not sure how much this actually buys us in current Rust
+            // versions, but it seemed like a good idea at the time.
+            wtr.write_record(record.into_iter())?;
+        } else {
+            // We need to apply one or more cleanups, so run the slow path.
+            let cleaned = record.into_iter().map(|mut val: &[u8]| -> Cow<[u8]> {
+                // Convert values matching `--null` regex to empty strings.
+                if let Some(ref null_re) = null_re {
+                    if null_re.is_match(&val) {
+                        val = &[]
+                    }
+                }
+
+                // Fix newlines.
+                if opt.replace_newlines
+                    && (val.contains(&b'\n') || val.contains(&b'\r'))
+                {
+                    NEWLINE_RE.replace_all(val, &b" "[..])
+                } else {
+                    Cow::Borrowed(val)
+                }
+            });
+            if opt.drop_row_if_null.is_empty() {
+                // Still somewhat fast!
+                wtr.write_record(cleaned)?;
+            } else {
+                // We need to rebuild the record, check for null columns,
+                // and only output the record if everything's OK.
+                let row = cleaned.collect::<Vec<Cow<[u8]>>>();
+                for (value, &is_required_col) in row.iter().zip(required_cols.iter()) {
+                    // If the column is NULL but shouldn't be, bail on this row.
+                    if is_required_col && value.is_empty() {
+                        bad_rows += 1;
+                        continue 'next_row;
+                    }
+                }
+                wtr.write_record(row)?;
+            }
+        }
     }
 
     // Print out some information about our run.
-    if !args.flag_quiet {
+    if !opt.quiet {
         let ellapsed = time::precise_time_s() - start_time;
         let bytes_per_second = (rdr.position().byte() as f64 / ellapsed) as i64;
         writeln!(

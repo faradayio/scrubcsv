@@ -8,7 +8,8 @@ use cli_test_dir::*;
 fn help_flag() {
     let testdir = TestDir::new("scrubcsv", "flag_help");
     let output = testdir.cmd().arg("--help").expect_success();
-    assert!(output.stdout_str().contains("scrubcsv --help"));
+    assert!(output.stdout_str().contains("scrubcsv"));
+    assert!(output.stdout_str().contains("--help"));
 }
 
 #[test]
@@ -135,9 +136,9 @@ fn null_normalization() {
     let output = testdir
         .cmd()
         .args(&["--null", "(?i)null|NIL"])
-        .output_with_stdin("null,NIL,nil,,not null\n")
+        .output_with_stdin("a,b,c,d,e\nnull,NIL,nil,,not null\n")
         .expect_success();
-    assert_eq!(output.stdout_str(), ",,,,not null\n")
+    assert_eq!(output.stdout_str(), "a,b,c,d,e\n,,,,not null\n")
 }
 
 #[test]
@@ -146,7 +147,34 @@ fn replace_newlines() {
     let output = testdir
         .cmd()
         .arg("--replace-newlines")
-        .output_with_stdin("\"line\r\nbreak\r1\",\"line\nbreak\n2\"\n")
+        .output_with_stdin("a,b\n\"line\r\nbreak\r1\",\"line\nbreak\n2\"\n")
         .expect_success();
-    assert_eq!(output.stdout_str(), "line break 1,line break 2\n");
+    assert_eq!(output.stdout_str(), "a,b\nline break 1,line break 2\n");
+}
+
+#[test]
+fn drop_row_if_null() {
+    let testdir = TestDir::new("scrubcsv", "replace_newlines");
+    let output = testdir
+        .cmd()
+        .arg("--drop-row-if-null=c1")
+        .arg("--drop-row-if-null=c2")
+        .args(&["--null", "NULL"])
+        .output_with_stdin(
+            r#"c1,c2,c3
+1,,
+,2,
+NULL,3,
+a,b,c
+"#,
+        )
+        .expect("error running scrubcsv");
+    eprintln!("{}", output.stderr_str());
+    //assert_eq!(output.status.code(), Some(2));
+    assert_eq!(
+        output.stdout_str(),
+        r#"c1,c2,c3
+a,b,c
+"#
+    );
 }
