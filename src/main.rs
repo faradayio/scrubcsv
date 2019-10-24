@@ -150,7 +150,7 @@ fn run() -> Result<()> {
     // because we wrap the `BufReader` around the box, we only do that
     // dispatch once per buffer flush, not on every tiny write.
     let stdin = io::stdin();
-    let unbuffered_input: Box<Read> = if let Some(ref path) = args.arg_input {
+    let unbuffered_input: Box<dyn Read> = if let Some(ref path) = args.arg_input {
         Box::new(fs::File::open(path)?)
     } else {
         Box::new(stdin.lock())
