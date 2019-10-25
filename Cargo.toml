@@ -19,7 +19,6 @@ opt-level = 3
 clap = "2.33.0"
 csv = "1"
 env_logger = "0.7"
-error-chain = "0.12"
 humansize = "1.0.1"
 lazy_static = "1.2.0"
 libc = "0.2.18"
