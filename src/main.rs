@@ -1,6 +1,4 @@
-// Declare a list of external crates.
-#[macro_use]
-extern crate error_chain;
+#![warn(clippy::all)]
 
 // Import from other crates.
 use humansize::{file_size_opts, FileSize};
@@ -11,17 +9,19 @@ use std::{
     borrow::Cow,
     fs,
     io::{self, prelude::*},
+    path::PathBuf,
     process,
 };
 use structopt::StructOpt;
 
 // Modules defined in separate files.
+#[macro_use]
 mod errors;
 mod util;
 
 // Import from our own crates.
 use crate::errors::*;
-use crate::util::parse_char_specifier;
+use crate::util::CharSpecifier;
 
 /// Our command-line arguments.
 #[derive(Debug, StructOpt)]
@@ -44,7 +44,7 @@ Exit code:
 )]
 struct Opt {
     /// Input file (uses stdin if omitted).
-    input: Option<String>,
+    input: Option<PathBuf>,
 
     /// Character used to separate fields in a row (must be a single ASCII
     /// byte, or "tab").
@@ -54,15 +54,15 @@ struct Opt {
         long = "delimiter",
         default_value = ","
     )]
-    delimiter: String,
+    delimiter: CharSpecifier,
 
-    /// Convert values matching NULLREGEX to an empty string.
-    #[structopt(value_name = "NULLREGEX", short = "n", long = "null")]
+    /// Convert values matching NULL_REGEX to an empty string.
+    #[structopt(value_name = "NULL_REGEX", short = "n", long = "null")]
     null: Option<String>,
 
-    // Replace LF and CRLF sequences in values with spaces. This should improve
-    // compatibility with systems like BigQuery that don't expect newlines
-    // inside escaped strings.
+    /// Replace LF and CRLF sequences in values with spaces. This should improve
+    /// compatibility with systems like BigQuery that don't expect newlines
+    /// inside escaped strings.
     #[structopt(long = "replace-newlines")]
     replace_newlines: bool,
 
@@ -71,14 +71,14 @@ struct Opt {
     #[structopt(value_name = "COL", long = "drop-row-if-null")]
     drop_row_if_null: Vec<String>,
 
-    // Do not print performance information.
+    /// Do not print performance information.
     #[structopt(short = "q", long = "quiet")]
     quiet: bool,
 
-    // Character used to quote entries. May be set to "none" to ignore all
-    // quoting.
+    /// Character used to quote entries. May be set to "none" to ignore all
+    /// quoting.
     #[structopt(value_name = "CHAR", long = "quote", default_value = "\"")]
-    quote: String,
+    quote: CharSpecifier,
 }
 
 lazy_static! {
@@ -96,15 +96,8 @@ fn run() -> Result<()> {
     env_logger::init();
 
     // Parse our command-line arguments using `docopt`.
-    let opt = Opt::from_args();
+    let opt: Opt = Opt::from_args();
     debug!("Options: {:#?}", opt);
-
-    // Figure out our field delimiter and quote character.
-    let delimiter = match parse_char_specifier(&opt.delimiter)? {
-        Some(d) => d,
-        _ => return Err("field delimiter is required".into()),
-    };
-    let quote = parse_char_specifier(&opt.quote)?;
 
     // Remember the time we started.
     let start_time = time::precise_time_s();
@@ -142,7 +135,10 @@ fn run() -> Result<()> {
     // dispatch once per buffer flush, not on every tiny write.
     let stdin = io::stdin();
     let unbuffered_input: Box<dyn Read> = if let Some(ref path) = opt.input {
-        Box::new(fs::File::open(path)?)
+        Box::new(
+            fs::File::open(path)
+                .with_context(|_| format!("cannot open {}", path.display()))?,
+        )
     } else {
         Box::new(stdin.lock())
     };
@@ -151,8 +147,7 @@ fn run() -> Result<()> {
     // Build a set containing all our `--null` values.
     let null_re = if let Some(null_re_str) = opt.null.as_ref() {
         let s = format!("^{}$", null_re_str);
-        let re = Regex::new(&s)
-            .chain_err(|| -> Error { "can't compile regular expression".into() })?;
+        let re = Regex::new(&s).context("can't compile regular expression")?;
         Some(re)
     } else {
         None
@@ -165,17 +160,24 @@ fn run() -> Result<()> {
     // Allow records with the wrong number of columns.
     rdr_builder.flexible(true);
     // Configure our delimiter.
-    rdr_builder.delimiter(delimiter);
+    if let Some(delimiter) = opt.delimiter.char() {
+        rdr_builder.delimiter(delimiter);
+    } else {
+        return Err(format_err!("field delimiter is required"))?;
+    }
     // Configure our quote character.
-    if let Some(quote) = quote {
+    if let Some(quote) = opt.quote.char() {
         rdr_builder.quote(quote);
     } else {
         rdr_builder.quoting(false);
     }
     let mut rdr = rdr_builder.from_reader(input);
-    let hdr = rdr.byte_headers()?.to_owned();
 
-    // Just in --drop-row-if-null was passed, precompute which columns are
+    // Calculate the number of expected columns.
+    let hdr = rdr.byte_headers().context("cannot read headers")?;
+    let expected_cols = hdr.len();
+
+    // Just in case --drop-row-if-null was passed, precompute which columns are
     // required.
     let required_cols = hdr
         .iter()
@@ -185,12 +187,14 @@ fn run() -> Result<()> {
                 .any(|requried_name| requried_name.as_bytes() == name)
         })
         .collect::<Vec<bool>>();
+    drop(hdr);
 
     // Create our CSV writer.  Note that we _don't_ allow variable numbers
     // of columns, non-standard delimiters, or other nonsense: We want our
     // output to be highly normalized.
-    let mut wtr = csv::WriterBuilder::new().flexible(true).from_writer(output);
-    wtr.write_byte_record(&hdr)?;
+    let mut wtr = csv::Writer::from_writer(output);
+    wtr.write_byte_record(&hdr)
+        .context("cannot write headers")?;
 
     // Keep track of total rows and malformed rows seen.
     let mut rows: u64 = 1;
@@ -210,13 +214,13 @@ fn run() -> Result<()> {
     // have a copy of all the row's fields before deciding whether or not
     // to write it out.
     'next_row: for record in rdr.byte_records() {
-        let record = record?;
+        let record = record.context("cannot read record")?;
 
         // Keep track of how many rows we've seen.
         rows += 1;
 
         // Check if we have the right number of columns in this row.
-        if record.len() != hdr.len() {
+        if record.len() != expected_cols {
             bad_rows += 1;
             continue 'next_row;
         }
@@ -226,7 +230,8 @@ fn run() -> Result<()> {
             // We don't need to do anything fancy, so just pass it through.
             // I'm not sure how much this actually buys us in current Rust
             // versions, but it seemed like a good idea at the time.
-            wtr.write_record(record.into_iter())?;
+            wtr.write_record(record.into_iter())
+                .context("cannot write record")?;
         } else {
             // We need to apply one or more cleanups, so run the slow path.
             let cleaned = record.into_iter().map(|mut val: &[u8]| -> Cow<[u8]> {
@@ -248,7 +253,7 @@ fn run() -> Result<()> {
             });
             if opt.drop_row_if_null.is_empty() {
                 // Still somewhat fast!
-                wtr.write_record(cleaned)?;
+                wtr.write_record(cleaned).context("cannot write record")?;
             } else {
                 // We need to rebuild the record, check for null columns,
                 // and only output the record if everything's OK.
@@ -260,39 +265,45 @@ fn run() -> Result<()> {
                         continue 'next_row;
                     }
                 }
-                wtr.write_record(row)?;
+                wtr.write_record(row).context("cannot write record")?;
             }
         }
     }
+
+    // Flush all our buffers.
+    wtr.flush().context("error writing records")?;
 
     // Print out some information about our run.
     if !opt.quiet {
         let ellapsed = time::precise_time_s() - start_time;
         let bytes_per_second = (rdr.position().byte() as f64 / ellapsed) as i64;
-        writeln!(
-            io::stderr(),
+        eprintln!(
             "{} rows ({} bad) in {:.2} seconds, {}/sec",
             rows,
             bad_rows,
             ellapsed,
-            bytes_per_second.file_size(file_size_opts::BINARY)?
-        )?;
+            bytes_per_second.file_size(file_size_opts::BINARY)?,
+        );
     }
 
     // If more than 10% of rows are bad, assume something has gone horribly
     // wrong.
-    if bad_rows * 10 > rows {
-        wtr.flush()?;
-        writeln!(
-            io::stderr(),
-            "Too many rows ({} of {}) were bad",
-            bad_rows,
-            rows
-        )?;
+    if bad_rows.checked_mul(10).expect("multiplication overflow") > rows {
+        eprintln!("Too many rows ({} of {}) were bad", bad_rows, rows);
         process::exit(2);
     }
 
     Ok(())
 }
 
-quick_main!(run);
+fn main() {
+    if let Err(err) = run() {
+        eprintln!("ERROR: {}", err);
+        let mut source = err.source();
+        while let Some(cause) = source {
+            eprintln!("  caused by: {}", cause);
+            source = cause.source();
+        }
+        process::exit(1);
+    }
+}
