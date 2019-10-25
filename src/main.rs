@@ -73,7 +73,8 @@ struct Opt {
     replace_newlines: bool,
 
     /// Drop any rows where the specified column is empty or NULL. Can be passed
-    /// more than once.
+    /// more than once. Useful for cleaning primary key columns before
+    /// upserting.
     #[structopt(value_name = "COL", long = "drop-row-if-null")]
     drop_row_if_null: Vec<String>,
 
