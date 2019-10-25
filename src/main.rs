@@ -147,7 +147,7 @@ fn run() -> Result<()> {
     if let Some(delimiter) = opt.delimiter.char() {
         rdr_builder.delimiter(delimiter);
     } else {
-        return Err(format_err!("field delimiter is required"))?;
+        return Err(format_err!("field delimiter is required"));
     }
     // Configure our quote character.
     if let Some(quote) = opt.quote.char() {
@@ -185,7 +185,6 @@ fn run() -> Result<()> {
                 .any(|requried_name| requried_name.as_bytes() == name)
         })
         .collect::<Vec<bool>>();
-    drop(hdr);
 
     // Keep track of total rows and malformed rows seen. We count the header as
     // a row for backwards compatibility.
