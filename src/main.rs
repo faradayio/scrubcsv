@@ -61,7 +61,8 @@ struct Opt {
     )]
     delimiter: CharSpecifier,
 
-    /// Convert values matching NULL_REGEX to an empty string.
+    /// Convert values matching NULL_REGEX to an empty string. For a case-insensitive
+    /// match, use `(?i)`: `--null '(?i)NULL'`.
     #[structopt(value_name = "NULL_REGEX", short = "n", long = "null")]
     null: Option<String>,
 
@@ -71,8 +72,8 @@ struct Opt {
     #[structopt(long = "replace-newlines")]
     replace_newlines: bool,
 
-    // Drop any rows where the specified column is empty or NULL. Can be passed
-    // more than once.
+    /// Drop any rows where the specified column is empty or NULL. Can be passed
+    /// more than once.
     #[structopt(value_name = "COL", long = "drop-row-if-null")]
     drop_row_if_null: Vec<String>,
 
