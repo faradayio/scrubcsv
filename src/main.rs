@@ -23,6 +23,11 @@ mod util;
 use crate::errors::*;
 use crate::util::CharSpecifier;
 
+/// Use reasonably large input and output buffers. This seems to give us a
+/// performance boost of around 5-10% compared to the standard 8 KiB buffer used
+/// by `csv`.
+const BUFFER_SIZE: usize = 256 * 1024;
+
 /// Our command-line arguments.
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -102,50 +107,9 @@ fn run() -> Result<()> {
     // Remember the time we started.
     let start_time = time::precise_time_s();
 
-    // VERY TRICKY!  The precise details of next two lines raise our
-    // maximum output speed from 100 MB/s to 3,000 MB/s!  Thanks to talchas
-    // and bluss on #rust IRC for helping figure this out.  Rust's usual
-    // `stdout` is thread-safe and line-buffered, and we need to bypass all
-    // that when writing gigabytes of line-oriented CSV files.
-    //
-    // If we forget to `lock` standard output, or if don't use a
-    // `BufWriter`, then there's some "flush on newline" code that will
-    // slow us way down.  We also have the option of being rude and doing
-    // this:
-    //
-    // ```
-    // use libc::STDOUT_FILENO;
-    // use std::os::unix::io::FromRawFd;
-    //
-    // fn raw_stdout() -> io::BufWriter<fs::File> {
-    //     io::BufWriter::new(unsafe { FromRawFd::from_raw_fd(STDOUT_FILENO) })
-    // }
-    // ```
-    //
-    // ...or opening up `/dev/stdout`, but the solution below is within
-    // measurement error in Rust 1.13.0, so no need to get cute.
-    let stdout = io::stdout();
-    let output = io::BufWriter::new(stdout.lock());
-
-    // Fetch our input from either standard input or a file.  The only
-    // tricky detail here is that we use a `Box<Read>` to represent "some
-    // object implementing `Read`, stored on the heap."  This allows us to
-    // do runtime dispatch (as if Rust Rust were object oriented).  But
-    // because we wrap the `BufReader` around the box, we only do that
-    // dispatch once per buffer flush, not on every tiny write.
-    let stdin = io::stdin();
-    let unbuffered_input: Box<dyn Read> = if let Some(ref path) = opt.input {
-        Box::new(
-            fs::File::open(path)
-                .with_context(|_| format!("cannot open {}", path.display()))?,
-        )
-    } else {
-        Box::new(stdin.lock())
-    };
-    let input = io::BufReader::new(unbuffered_input);
-
-    // Build a set containing all our `--null` values.
+    // Build a regex containing our `--null` value.
     let null_re = if let Some(null_re_str) = opt.null.as_ref() {
+        // Always match the full CSV value.
         let s = format!("^{}$", null_re_str);
         let re = Regex::new(&s).context("can't compile regular expression")?;
         Some(re)
@@ -153,8 +117,26 @@ fn run() -> Result<()> {
         None
     };
 
+    // Fetch our input from either standard input or a file.  The only tricky
+    // detail here is that we use a `Box<dyn Read>` to represent "some object
+    // implementing `Read`, stored on the heap."  This allows us to do runtime
+    // dispatch (as if Rust were object oriented).  But because `csv` wraps a
+    // `BufReader` around the box, we only do that dispatch once per buffer
+    // flush, not on every tiny write.
+    let stdin = io::stdin();
+    let input: Box<dyn Read> = if let Some(ref path) = opt.input {
+        Box::new(
+            fs::File::open(path)
+                .with_context(|_| format!("cannot open {}", path.display()))?,
+        )
+    } else {
+        Box::new(stdin.lock())
+    };
+
     // Create our CSV reader.
     let mut rdr_builder = csv::ReaderBuilder::new();
+    // Set a reasonable buffer size.
+    rdr_builder.buffer_capacity(BUFFER_SIZE);
     // We need headers so that we can honor --drop-row-if-null.
     rdr_builder.has_headers(true);
     // Allow records with the wrong number of columns.
@@ -173,12 +155,26 @@ fn run() -> Result<()> {
     }
     let mut rdr = rdr_builder.from_reader(input);
 
+    // We lock `stdout`, giving us exclusive access. In the past, this has made
+    // an enormous difference in performance.
+    let stdout = io::stdout();
+    let output = stdout.lock();
+
+    // Create our CSV writer.  Note that we _don't_ allow variable numbers
+    // of columns, non-standard delimiters, or other nonsense: We want our
+    // output to be highly normalized.
+    let mut wtr = csv::WriterBuilder::new()
+        .buffer_capacity(BUFFER_SIZE)
+        .from_writer(output);
+
     // Calculate the number of expected columns.
     let hdr = rdr.byte_headers().context("cannot read headers")?;
     let expected_cols = hdr.len();
+    wtr.write_byte_record(&hdr)
+        .context("cannot write headers")?;
 
     // Just in case --drop-row-if-null was passed, precompute which columns are
-    // required.
+    // required to contain a value.
     let required_cols = hdr
         .iter()
         .map(|name| -> bool {
@@ -189,14 +185,8 @@ fn run() -> Result<()> {
         .collect::<Vec<bool>>();
     drop(hdr);
 
-    // Create our CSV writer.  Note that we _don't_ allow variable numbers
-    // of columns, non-standard delimiters, or other nonsense: We want our
-    // output to be highly normalized.
-    let mut wtr = csv::Writer::from_writer(output);
-    wtr.write_byte_record(&hdr)
-        .context("cannot write headers")?;
-
-    // Keep track of total rows and malformed rows seen.
+    // Keep track of total rows and malformed rows seen. We count the header as
+    // a row for backwards compatibility.
     let mut rows: u64 = 1;
     let mut bad_rows: u64 = 0;
 
@@ -206,13 +196,11 @@ fn run() -> Result<()> {
     let use_fast_path =
         null_re.is_none() && !opt.replace_newlines && opt.drop_row_if_null.is_empty();
 
-    // Iterate over all the rows, checking to make sure they look
-    // reasonable.
+    // Iterate over all the rows, checking to make sure they look reasonable.
     //
-    // If we use the lowest-level, zero-copy API for `csv`, we can process
-    // about 225 MB/s.  But it turns out we can't do that, because we need to
-    // have a copy of all the row's fields before deciding whether or not
-    // to write it out.
+    // If we use the lowest-level, zero-copy API for `csv`, we can process about
+    // 225 MB/s.  But it turns out we can't do that, because we need to count
+    // all the row's fields before deciding whether or not to write it out.
     'next_row: for record in rdr.byte_records() {
         let record = record.context("cannot read record")?;
 
