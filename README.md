@@ -87,3 +87,15 @@ it into an existing buffer to avoid `malloc` overhead (which is almost
 certianly the bottleneck here), but that would require more code.  Still,
 file an issue if performance is a problem.  We could probably make this a
 maybe two to four times faster (and it would be fun to optimize).
+
+## Removing all nulls
+
+Here's how to remove [all nulls as defined by BigML](https://bigml.com/api/sources):
+
+```
+scrubcsv --null \\s\*\(N/A\|n/a\|NULL\|null\|\\-\|\\\#DIV/0\|\\\#REF\!\|\\\#NAME\\\?\|NIL\|nil\|NA\|na\|\\\#VALUE\!\|\\\#NULL\!\|NaN\|\\\#N/A\|\\\#NUM\!\|\\\?\)\\s\* foobar.csv
+```
+
+## Copyright
+
+Copyright 2019 Faraday
