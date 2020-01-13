@@ -16,7 +16,7 @@ homepage = "https://github.com/faradayio/scrubcsv"
 opt-level = 3
 
 [dependencies]
-clap = "2.33.0"
+clap = { version = "2.33.0", features = ["wrap_help"] }
 csv = "1"
 env_logger = "0.7"
 humansize = "1.0.1"
