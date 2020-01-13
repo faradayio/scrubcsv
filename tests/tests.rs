@@ -164,6 +164,17 @@ fn trim_whitespace() {
 }
 
 #[test]
+fn clean_column_names() {
+    let testdir = TestDir::new("scrubcsv", "clean_column_names");
+    let output = testdir
+        .cmd()
+        .arg("--clean-column-names")
+        .output_with_stdin(",,a,a\n")
+        .expect_success();
+    assert_eq!(output.stdout_str(), "_,__2,a,a_2\n");
+}
+
+#[test]
 fn drop_row_if_null() {
     let testdir = TestDir::new("scrubcsv", "replace_newlines");
     let output = testdir

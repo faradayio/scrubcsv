@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 // Import from other crates.
+use csv::ByteRecord;
 use humansize::{file_size_opts, FileSize};
 use lazy_static::lazy_static;
 use log::debug;
@@ -18,10 +19,12 @@ use structopt::StructOpt;
 // Modules defined in separate files.
 #[macro_use]
 mod errors;
+mod uniquifier;
 mod util;
 
 // Import from our own crates.
 use crate::errors::*;
+use crate::uniquifier::Uniquifier;
 use crate::util::CharSpecifier;
 
 /// Use reasonably large input and output buffers. This seems to give us a
@@ -77,9 +80,14 @@ struct Opt {
     #[structopt(long = "trim-whitespace")]
     trim_whitespace: bool,
 
+    /// Make sure column names are unique, and use only lowercase letters, numbers
+    /// and underscores.
+    #[structopt(long = "clean-column-names")]
+    clean_column_names: bool,
+
     /// Drop any rows where the specified column is empty or NULL. Can be passed
     /// more than once. Useful for cleaning primary key columns before
-    /// upserting.
+    /// upserting. Uses the cleaned form of column names.
     #[structopt(value_name = "COL", long = "drop-row-if-null")]
     drop_row_if_null: Vec<String>,
 
@@ -174,11 +182,29 @@ fn run() -> Result<()> {
         .buffer_capacity(BUFFER_SIZE)
         .from_writer(output);
 
-    // Calculate the number of expected columns.
-    let hdr = rdr.byte_headers().context("cannot read headers")?;
-    let expected_cols = hdr.len();
+    // Get our header and, if we were asked, make sure all the column names are unique.
+    let mut hdr = rdr
+        .byte_headers()
+        .context("cannot read headers")?
+        .to_owned();
+    if opt.clean_column_names {
+        let mut uniquifier = Uniquifier::default();
+        let mut new_hdr = ByteRecord::default();
+        for col in hdr.into_iter() {
+            // Convert from bytes to UTF-8, make unique (and clean), and convert back to bytes.
+            let col = String::from_utf8_lossy(col);
+            let col = uniquifier.unique_id_for(&col)?.to_owned();
+            new_hdr.push_field(col.as_bytes());
+        }
+        hdr = new_hdr;
+    }
+
+    // Write our header to our output.
     wtr.write_byte_record(&hdr)
         .context("cannot write headers")?;
+
+    // Calculate the number of expected columns.
+    let expected_cols = hdr.len();
 
     // Just in case --drop-row-if-null was passed, precompute which columns are
     // required to contain a value.
