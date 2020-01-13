@@ -1,4 +1,5 @@
 #![warn(clippy::all)]
+#![forbid(unsafe_code)]
 
 // Import from other crates.
 use csv::ByteRecord;
@@ -74,6 +75,10 @@ struct Opt {
     /// inside escaped strings.
     #[structopt(long = "replace-newlines")]
     replace_newlines: bool,
+
+    /// Remove whitespace at beginning and end of each cell.
+    #[structopt(long = "trim-whitespace")]
+    trim_whitespace: bool,
 
     /// Make sure column names are unique, and use only lowercase letters, numbers
     /// and underscores.
@@ -220,8 +225,10 @@ fn run() -> Result<()> {
     // Can we use the fast path and copy the data through unchanged? Or do we
     // need to clean up emebedded newlines in our data? (These break BigQuery,
     // for example.)
-    let use_fast_path =
-        null_re.is_none() && !opt.replace_newlines && opt.drop_row_if_null.is_empty();
+    let use_fast_path = null_re.is_none()
+        && !opt.replace_newlines
+        && !opt.trim_whitespace
+        && opt.drop_row_if_null.is_empty();
 
     // Iterate over all the rows, checking to make sure they look reasonable.
     //
@@ -255,6 +262,25 @@ fn run() -> Result<()> {
                     if null_re.is_match(&val) {
                         val = &[]
                     }
+                }
+
+                // Remove whitespace from our cells.
+                if opt.trim_whitespace {
+                    // We do this manually, because the built-in `trim` only
+                    // works on UTF-8 strings, and we work on any
+                    // "ASCII-compatible" encoding.
+                    let first = val.iter().position(|c| !c.is_ascii_whitespace());
+                    let last = val.iter().rposition(|c| !c.is_ascii_whitespace());
+                    val = match (first, last) {
+                        (Some(first), Some(last)) if first <= last => {
+                            &val[first..=last]
+                        }
+                        (None, None) => &[],
+                        _ => panic!(
+                            "tried to trim {:?}, got impossible indices {:?} {:?}",
+                            val, first, last,
+                        ),
+                    };
                 }
 
                 // Fix newlines.

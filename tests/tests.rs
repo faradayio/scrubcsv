@@ -153,6 +153,17 @@ fn replace_newlines() {
 }
 
 #[test]
+fn trim_whitespace() {
+    let testdir = TestDir::new("scrubcsv", "trim_whitespace");
+    let output = testdir
+        .cmd()
+        .arg("--trim-whitespace")
+        .output_with_stdin("a,b,c,d\n 1 , 2, ,\n")
+        .expect_success();
+    assert_eq!(output.stdout_str(), "a,b,c,d\n1,2,,\n");
+}
+
+#[test]
 fn clean_column_names() {
     let testdir = TestDir::new("scrubcsv", "clean_column_names");
     let output = testdir
