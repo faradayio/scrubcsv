@@ -25,7 +25,7 @@ mod util;
 // Import from our own crates.
 use crate::errors::*;
 use crate::uniquifier::Uniquifier;
-use crate::util::CharSpecifier;
+use crate::util::{now, CharSpecifier};
 
 /// Use reasonably large input and output buffers. This seems to give us a
 /// performance boost of around 5-10% compared to the standard 8 KiB buffer used
@@ -120,7 +120,7 @@ fn run() -> Result<()> {
     debug!("Options: {:#?}", opt);
 
     // Remember the time we started.
-    let start_time = time::precise_time_s();
+    let start_time = now();
 
     // Build a regex containing our `--null` value.
     let null_re = if let Some(null_re_str) = opt.null.as_ref() {
@@ -316,7 +316,7 @@ fn run() -> Result<()> {
 
     // Print out some information about our run.
     if !opt.quiet {
-        let ellapsed = time::precise_time_s() - start_time;
+        let ellapsed = (now() - start_time).as_seconds_f64();
         let bytes_per_second = (rdr.position().byte() as f64 / ellapsed) as i64;
         eprintln!(
             "{} rows ({} bad) in {:.2} seconds, {}/sec",

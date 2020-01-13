@@ -1,8 +1,16 @@
 //! Miscellaneous utilities.
 
 use std::str::FromStr;
+use time::{Duration, PrimitiveDateTime};
 
 use crate::errors::*;
+
+/// Get the current time relative to the Unix epoch, as suggested by the `time`
+/// crate. (Why are we using the `time` crate? Could we do this using the
+/// standard library or `chrono` instead?)
+pub fn now() -> Duration {
+    PrimitiveDateTime::now() - PrimitiveDateTime::unix_epoch()
+}
 
 /// Specifies an optional single-byte character used to configure our CSV
 /// parser.
