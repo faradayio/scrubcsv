@@ -99,6 +99,10 @@ struct Opt {
     /// quoting.
     #[structopt(value_name = "CHAR", long = "quote", default_value = "\"")]
     quote: CharSpecifier,
+
+    /// Save badly formed rows to a file.
+    #[structopt(value_name = "PATH", long = "bad-rows-path")]
+    bad_rows_path: Option<PathBuf>,
 }
 
 lazy_static! {
@@ -182,6 +186,13 @@ fn run() -> Result<()> {
         .buffer_capacity(BUFFER_SIZE)
         .from_writer(output);
 
+    // Create out CSV writer for bad rows if it is requested.
+    let mut bad_rows_wtr = if let Some(ref path) = opt.bad_rows_path {
+        Some(csv::WriterBuilder::new().from_path(path)?)
+    } else {
+        None
+    };
+
     // Get our header and, if we were asked, make sure all the column names are unique.
     let mut hdr = rdr
         .byte_headers()
@@ -244,6 +255,11 @@ fn run() -> Result<()> {
         // Check if we have the right number of columns in this row.
         if record.len() != expected_cols {
             bad_rows += 1;
+            if let Some(ref mut wtr_bad) = bad_rows_wtr {
+                wtr_bad
+                    .write_record(record.into_iter())
+                    .context("cannot write record")?;
+            };
             continue 'next_row;
         }
 
@@ -303,6 +319,11 @@ fn run() -> Result<()> {
                     // If the column is NULL but shouldn't be, bail on this row.
                     if is_required_col && value.is_empty() {
                         bad_rows += 1;
+                        if let Some(ref mut wtr_bad) = bad_rows_wtr {
+                            wtr_bad
+                                .write_record(record.into_iter())
+                                .context("cannot write record")?;
+                        };
                         continue 'next_row;
                     }
                 }

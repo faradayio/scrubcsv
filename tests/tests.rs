@@ -112,6 +112,26 @@ fn bad_rows() {
 }
 
 #[test]
+fn bad_rows_saved() {
+    let mut good_rows = "a,b,c\n".to_owned();
+    for _ in 0..100 {
+        good_rows.push_str("1,2,3\n");
+    }
+    let mut bad_rows = good_rows.clone();
+    bad_rows.push_str("1,2\n");
+
+    let testdir = TestDir::new("scrubcsv", "bad_rows_saved");
+    let output = testdir
+        .cmd()
+        .args(&["--bad-rows-path", "bad.csv"])
+        .output_with_stdin(&bad_rows)
+        .expect_success();
+    testdir.expect_file_contents("bad.csv", "1,2\n");
+    assert_eq!(output.stdout_str(), &good_rows);
+    assert!(output.stderr_str().contains("102 rows (1 bad)"));
+}
+
+#[test]
 fn too_many_bad_rows() {
     let testdir = TestDir::new("scrubcsv", "too_many_bad_rows");
     let output = testdir
@@ -199,4 +219,31 @@ a,b,c
 a,b,c
 "#
     );
+}
+
+#[test]
+fn drop_row_if_null_saved() {
+    let testdir = TestDir::new("scrubcsv", "drop_row_if_null_saved");
+    let output = testdir
+        .cmd()
+        .arg("--drop-row-if-null=c1")
+        .arg("--drop-row-if-null=c2")
+        .args(&["--bad-rows-path", "bad.csv"])
+        .output_with_stdin(
+            r#"c1,c2,c3
+1,,
+a,b,c
+1,2,3
+3,2,1
+1,4,5
+2,2,2
+1,1,1
+5,5,5
+2,2,2
+1,1,1
+"#,
+        )
+        .expect("error running scrubcsv");
+    eprintln!("{}", output.stderr_str());
+    testdir.expect_file_contents("bad.csv", "1,,\n");
 }
