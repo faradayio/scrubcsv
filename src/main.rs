@@ -244,6 +244,12 @@ fn run() -> Result<()> {
         // Check if we have the right number of columns in this row.
         if record.len() != expected_cols {
             bad_rows += 1;
+            debug!(
+                "row {}: expected {} columns, found {}",
+                rows,
+                expected_cols,
+                record.len(),
+            );
             continue 'next_row;
         }
 
@@ -303,6 +309,7 @@ fn run() -> Result<()> {
                     // If the column is NULL but shouldn't be, bail on this row.
                     if is_required_col && value.is_empty() {
                         bad_rows += 1;
+                        debug!("row {}: required column is empty", rows);
                         continue 'next_row;
                     }
                 }
