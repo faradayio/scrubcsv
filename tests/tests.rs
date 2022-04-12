@@ -212,7 +212,8 @@ fn test_null_byte_as_empty_cell() {
 1,2,3
 \x00,\x00,1
 "#,
-        ).expect("error running scrubcsv test");
+        )
+        .expect("error running scrubcsv test");
     assert_eq!(
         output.stdout_str(),
         r#"c1,c2,c3
@@ -220,8 +221,8 @@ fn test_null_byte_as_empty_cell() {
 ,,1
 "#
     );
-
-}#[test]
+}
+#[test]
 fn test_null_byte_as_empty_cell_with_null_re() {
     let testdir = TestDir::new("scrubcsv", "null_byte_as_empty_with_null_re");
     let output = testdir
@@ -233,7 +234,8 @@ fn test_null_byte_as_empty_cell_with_null_re() {
 1,2,NULL
 \x00,\x00,1
 "#,
-        ).expect("error running scrubcsv test");
+        )
+        .expect("error running scrubcsv test");
     assert_eq!(
         output.stdout_str(),
         r#"c1,c2,c3

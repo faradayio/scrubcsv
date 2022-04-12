@@ -105,7 +105,7 @@ struct Opt {
     /// a null byte into --null on the command line.
     /// https://github.com/faradayio/scrubcsv/issues/17
     #[structopt(long = "null-byte-as-empty")]
-    null_byte_as_empty: bool
+    null_byte_as_empty: bool,
 }
 
 lazy_static! {
@@ -129,7 +129,7 @@ fn run() -> Result<()> {
     // Remember the time we started.
     let start_time = now();
 
-    let mut pattern= if opt.null_byte_as_empty == true {
+    let mut pattern = if opt.null_byte_as_empty == true {
         Some(String::from(r"\x00"))
     } else {
         None
