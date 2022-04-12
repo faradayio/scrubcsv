@@ -200,3 +200,45 @@ a,b,c
 "#
     );
 }
+
+#[test]
+fn test_null_byte_as_empty_cell() {
+    let testdir = TestDir::new("scrubcsv", "null_byte_as_empty");
+    let output = testdir
+        .cmd()
+        .arg("--null-byte-as-empty")
+        .output_with_stdin(
+            br#"c1,c2,c3
+1,2,3
+\x00,\x00,1
+"#,
+        ).expect("error running scrubcsv test");
+    assert_eq!(
+        output.stdout_str(),
+        r#"c1,c2,c3
+1,2,3
+,,1
+"#
+    );
+
+}#[test]
+fn test_null_byte_as_empty_cell_with_null_re() {
+    let testdir = TestDir::new("scrubcsv", "null_byte_as_empty_with_null_re");
+    let output = testdir
+        .cmd()
+        .arg("--null-byte-as-empty")
+        .args(&["--null", "NULL"])
+        .output_with_stdin(
+            br#"c1,c2,c3
+1,2,NULL
+\x00,\x00,1
+"#,
+        ).expect("error running scrubcsv test");
+    assert_eq!(
+        output.stdout_str(),
+        r#"c1,c2,c3
+1,2,
+,,1
+"#
+    );
+}
