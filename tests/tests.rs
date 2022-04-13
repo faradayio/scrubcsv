@@ -142,6 +142,17 @@ fn null_normalization() {
 }
 
 #[test]
+fn null_normalization_of_null_bytes() {
+    let testdir = TestDir::new("scrubcsv", "null_normalization_of_null_bytes");
+    let output = testdir
+        .cmd()
+        .args(&["--null", "\\x00"])
+        .output_with_stdin("a,b\n\0,\n")
+        .expect_success();
+    assert_eq!(output.stdout_str(), "a,b\n,\n")
+}
+
+#[test]
 fn replace_newlines() {
     let testdir = TestDir::new("scrubcsv", "replace_newlines");
     let output = testdir
