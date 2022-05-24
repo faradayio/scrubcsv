@@ -1,0 +1,36 @@
+# Project policies.
+#
+# These policies can be enforced using `cargo deny check`.
+
+[advisories]
+ignore = []
+
+[licenses]
+# Don't allow code with an unclear license.
+unlicensed = "deny"
+
+# Don't allow "copylefted" licenses unless they're listed below.
+copyleft = "deny"
+
+# Allow common non-restrictive licenses.
+allow = ["MIT", "Apache-2.0", "CC0-1.0"]
+
+# Many organizations ban AGPL-licensed code
+# https://opensource.google/docs/using/agpl-policy/
+deny = ["AGPL-3.0"]
+
+[bans]
+# Warn about multiple versions of the same crate, unless we've indicated otherwise below.
+multiple-versions = "warn"
+
+deny = [
+    # OpenSSL has caused endless deployment and build problems, and we want
+    # nothing to do with it, in any version.
+    { name = "openssl-sys" },
+]
+
+skip = []
+
+skip-tree = []
+
+
