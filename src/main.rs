@@ -265,7 +265,7 @@ fn run() -> Result<()> {
             let cleaned = record.into_iter().map(|mut val: &[u8]| -> Cow<[u8]> {
                 // Convert values matching `--null` regex to empty strings.
                 if let Some(ref null_re) = null_re {
-                    if null_re.is_match(&val) {
+                    if null_re.is_match(val) {
                         val = &[]
                     }
                 }
