@@ -1,7 +1,7 @@
 //! Miscellaneous utilities.
 
 use std::str::FromStr;
-use time::{Duration, PrimitiveDateTime};
+use time::{Duration, OffsetDateTime};
 
 use crate::errors::*;
 
@@ -9,7 +9,7 @@ use crate::errors::*;
 /// crate. (Why are we using the `time` crate? Could we do this using the
 /// standard library or `chrono` instead?)
 pub fn now() -> Duration {
-    PrimitiveDateTime::now() - PrimitiveDateTime::unix_epoch()
+    OffsetDateTime::now_utc() - OffsetDateTime::UNIX_EPOCH
 }
 
 /// Specifies an optional single-byte character used to configure our CSV
