@@ -99,6 +99,13 @@ struct Opt {
     /// quoting.
     #[structopt(value_name = "CHAR", long = "quote", default_value = "\"")]
     quote: CharSpecifier,
+
+    /// Should a null-byte (\x0) be interpreted as an empty cell
+    /// this option exists because it is not always possible to pass
+    /// a null byte into --null on the command line.
+    /// https://github.com/faradayio/scrubcsv/issues/17
+    #[structopt(long = "null-byte-as-empty")]
+    null_byte_as_empty: bool,
 }
 
 lazy_static! {
@@ -122,14 +129,23 @@ fn run() -> Result<()> {
     // Remember the time we started.
     let start_time = now();
 
-    // Build a regex containing our `--null` value.
-    let null_re = if let Some(null_re_str) = opt.null.as_ref() {
-        // Always match the full CSV value.
-        let s = format!("^{}$", null_re_str);
-        let re = Regex::new(&s).context("can't compile regular expression")?;
-        Some(re)
+    let mut pattern = if opt.null_byte_as_empty == true {
+        Some(String::from(r"\x00"))
     } else {
         None
+    };
+
+    if let Some(null_re_str) = opt.null.as_ref() {
+        pattern = match pattern {
+            Some(p) => Some(format!(r"{}|^{}$", p, null_re_str)),
+            None => Some(format!("^{}$", null_re_str)),
+        }
+    }
+
+    // Build a regex containing our `--null` value(s).
+    let null_re = match pattern {
+        Some(p) => Some(Regex::new(&p).context("can't build regular expression")?),
+        None => None,
     };
 
     // Fetch our input from either standard input or a file.  The only tricky
